@@ -1,0 +1,835 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>livestock</title>
+<script src="https://cdn.plot.ly/plotly-2.35.2.min.js"></script>
+<style>
+  html, body {
+    margin: 0;
+    min-height: 100%;
+    background: #111;
+    color: #eee;
+    font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  }
+  body {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 1.5rem;
+    padding: 4rem 2rem 2rem;
+    box-sizing: border-box;
+    min-height: 100vh;
+  }
+  #day-header {
+    position: fixed;
+    top: 0; left: 0; right: 0;
+    padding: .6rem 1rem;
+    background: rgba(17,17,17,.9);
+    backdrop-filter: blur(6px);
+    border-bottom: 1px solid #222;
+    font-size: .95rem;
+    letter-spacing: .04em;
+    color: #ddd;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    z-index: 10;
+  }
+  #day-header .lbl { color: #888; }
+  #day-header .val { color: #fff; font-variant-numeric: tabular-nums; }
+  #day-header .pause {
+    background: #2a2a2a;
+    color: #fff;
+    border: 1px solid #444;
+    padding: .25rem .8rem;
+    border-radius: 3px;
+    font-family: inherit;
+    font-size: .85rem;
+    cursor: pointer;
+    margin-left: 1rem;
+  }
+  #day-header .pause:hover { background: #333; }
+  #day-header .pause.paused { background: #3a2a4a; border-color: #664488; }
+  #day-header .val.running::after {
+    content: '';
+    display: inline-block;
+    width: .5em;
+    height: 1em;
+    margin-left: .4em;
+    background: #fff;
+    vertical-align: -.1em;
+    animation: blink 1s steps(2, end) infinite;
+  }
+  @keyframes blink { 50% { opacity: 0; } }
+
+  #out {
+    font-size: clamp(4rem, 16vw, 14rem);
+    font-weight: 700;
+    line-height: 1;
+    color: #fff;
+    transition: opacity .15s;
+    margin: 1rem 0;
+  }
+  #out.hidden { display: none; }
+
+  #out-caption {
+    max-width: 640px;
+    text-align: center;
+    font-size: .85rem;
+    line-height: 1.5;
+    color: #999;
+    margin-top: -.5rem;
+  }
+  #out-caption.hidden { display: none; }
+  #out-caption b { color: #ccc; font-weight: 600; }
+
+  #graph-area {
+    width: min(1000px, 100%);
+    height: 460px;
+    display: none;
+    background: #191919;
+    border-radius: 4px;
+  }
+  #graph-area.visible { display: block; }
+
+  .sliders {
+    width: min(900px, 100%);
+    display: flex;
+    flex-direction: column;
+    gap: 1.2rem;
+  }
+  .row {
+    display: grid;
+    grid-template-columns: auto 1fr;
+    gap: .8rem 1rem;
+    align-items: start;
+  }
+  .row .toggle {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: .25rem;
+    padding-top: .1rem;
+    user-select: none;
+    cursor: pointer;
+  }
+  .row .toggle input { margin: 0; accent-color: #eee; cursor: pointer; }
+  .row .toggle input:disabled { cursor: not-allowed; opacity: .3; }
+  .row .toggle span { font-size: .7rem; color: #888; }
+  .row .body { display: flex; flex-direction: column; gap: .35rem; min-width: 0; }
+  .row header {
+    display: flex;
+    justify-content: space-between;
+    font-size: .95rem;
+    color: #aaa;
+  }
+  .row header b { color: #fff; font-weight: 600; font-variant-numeric: tabular-nums; }
+  .lbl-group { display: inline-flex; align-items: center; gap: .4rem; }
+  .info {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 1.15em;
+    height: 1.15em;
+    flex: none;
+    border-radius: 50%;
+    border: 1px solid #555;
+    color: #888;
+    font-size: .68rem;
+    cursor: help;
+    position: relative;
+    user-select: none;
+  }
+  .info:hover, .info:focus { color: #ddd; border-color: #999; outline: none; }
+  .info .tip {
+    display: none;
+    position: absolute;
+    bottom: 145%;
+    left: 0;
+    width: 16rem;
+    background: #222;
+    border: 1px solid #444;
+    border-radius: 4px;
+    padding: .65rem .75rem;
+    font-size: .72rem;
+    line-height: 1.5;
+    color: #bbb;
+    text-align: left;
+    font-weight: 400;
+    z-index: 20;
+    box-shadow: 0 4px 14px rgba(0,0,0,.45);
+  }
+  .info .tip b { color: #eee; }
+  .info:hover .tip, .info:focus .tip { display: block; }
+  .row .sub {
+    display: flex;
+    justify-content: space-between;
+    font-size: .75rem;
+    color: #777;
+  }
+  input[type=range] { width: 100%; accent-color: #eee; }
+  .row.swept input[type=range] { accent-color: #6cf; }
+
+  #advisor {
+    width: min(900px, 100%);
+    border-top: 1px solid #222;
+    padding-top: 1.5rem;
+    margin-top: .5rem;
+    display: flex;
+    flex-direction: column;
+    gap: .8rem;
+  }
+  #advisor h2 {
+    font-size: .95rem;
+    color: #aaa;
+    font-weight: 600;
+    margin: 0;
+  }
+  .roster-bar-wrap {
+    position: relative;
+    height: 2.6rem;
+  }
+  .roster-bar {
+    position: absolute;
+    inset: 0;
+    display: flex;
+    border-radius: 5px;
+    overflow: hidden;
+    background: #2a2a2a;
+    border: 1px solid #3a3a3a;
+  }
+  .roster-bar .seg { height: 100%; transition: width .08s; }
+  .roster-bar .seg.active { background: #3fb461; }
+  .roster-bar .seg.inactive { background: #c0493f; }
+  .roster-range {
+    position: absolute;
+    left: 0;
+    width: 100%;
+    margin: 0;
+    height: 1.3rem;
+    background: none;
+    -webkit-appearance: none;
+    appearance: none;
+    pointer-events: none;
+  }
+  .roster-range.top { top: 0; }
+  .roster-range.bottom { top: 1.3rem; }
+  .roster-range::-webkit-slider-runnable-track { background: none; }
+  .roster-range::-moz-range-track { background: none; }
+  .roster-range::-webkit-slider-thumb {
+    -webkit-appearance: none;
+    pointer-events: auto;
+    width: .35rem;
+    height: 1.3rem;
+    border-radius: 2px;
+    background: #eee;
+    border: 1px solid #000;
+    cursor: ew-resize;
+    margin-top: 0;
+  }
+  .roster-range::-moz-range-thumb {
+    pointer-events: auto;
+    width: .35rem;
+    height: 1.3rem;
+    border-radius: 2px;
+    background: #eee;
+    border: 1px solid #000;
+    cursor: ew-resize;
+  }
+  .roster-labels {
+    display: flex;
+    gap: 1.4rem;
+    flex-wrap: wrap;
+    font-size: .8rem;
+    color: #999;
+  }
+  .roster-labels b { color: #eee; }
+  .dot { display: inline-block; width: .6rem; height: .6rem; border-radius: 50%; margin-right: .2rem; }
+  .dot.active { background: #3fb461; }
+  .dot.inactive { background: #c0493f; }
+  #advisor-out {
+    font-size: .85rem;
+    line-height: 1.6;
+    color: #ccc;
+  }
+  #advisor-out b { color: #fff; }
+  #advisor-out .warn { color: #e8a04c; }
+</style>
+</head>
+<body>
+  <div id="day-header">
+    <span><span class="lbl">simulating</span> <span class="val" id="day-val">—</span> <span class="lbl">day(s)</span></span>
+    <span><span class="lbl" id="day-range"></span><button class="pause" id="pause-btn" title="pause / resume the simulation">pause</button></span>
+  </div>
+  <div id="out">…</div>
+  <div id="out-caption"></div>
+  <div id="graph-area"></div>
+  <div class="sliders">
+    <div class="row" data-axis="n">
+      <label class="toggle"><input type="checkbox" data-graph="n"><span>graph</span></label>
+      <div class="body">
+        <header><span class="lbl-group"><span>max clan members (n)</span><span class="info" tabindex="0">i<span class="tip"><b>ELI5:</b> the most people your clan can ever hold at once &mdash; like how many seats are in your clubhouse.<br><b>advanced:</b> hard cap on roster size (includes the leader's seat if the reserved-leader-slot toggle is on); recruitment stops once the roster reaches it.</span></span></span><b class="val">50</b></header>
+        <div class="slot"></div>
+      </div>
+    </div>
+    <div class="row" data-axis="i">
+      <label class="toggle"><input type="checkbox" data-graph="i"><span>graph</span></label>
+      <div class="body">
+        <header><span class="lbl-group"><span>inactive odds / day (%) — log</span><span class="info" tabindex="0">i<span class="tip"><b>ELI5:</b> how likely a member goes quiet and stops playing, each day.<br><b>advanced:</b> baseline daily hazard rate, before any tenure effects are applied.</span></span></span><b class="val">0.954</b></header>
+        <div class="slot"></div>
+      </div>
+    </div>
+    <div class="row" data-axis="m">
+      <label class="toggle"><input type="checkbox" data-graph="m"><span>graph</span></label>
+      <div class="body">
+        <header><span class="lbl-group"><span>max join odds — log</span><span class="info" tabindex="0">i<span class="tip"><b>ELI5:</b> how many new friends might show up on a good day.<br><b>advanced:</b> join chance = m/(n-1) &times; current members &mdash; recruitment scales with how full the roster already is.</span></span></span><b class="val">200.00</b></header>
+        <div class="slot"></div>
+      </div>
+    </div>
+    <div class="row" data-axis="b">
+      <label class="toggle"><input type="checkbox" data-graph="b"><span>graph</span></label>
+      <div class="body">
+        <header><span class="lbl-group"><span>early-churn boost</span><span class="info" tabindex="0">i<span class="tip"><b>ELI5:</b> brand new members are flakier than veterans &mdash; this is how much flakier.<br><b>advanced:</b> multiplies day-0 hazard: hazard(t) = i &times; (1 + b&middot;e<sup>-t/decay</sup>).</span></span></span><b class="val">1.000</b></header>
+        <div class="slot"></div>
+      </div>
+    </div>
+    <div class="row" data-axis="d">
+      <label class="toggle"><input type="checkbox" data-graph="d"><span>graph</span></label>
+      <div class="body">
+        <header><span class="lbl-group"><span>early-churn decay half-life (days) — log</span><span class="info" tabindex="0">i<span class="tip"><b>ELI5:</b> how many days until a new member calms down and stops being extra flaky.<br><b>advanced:</b> half-life of the boosted hazard decaying back to the baseline inactive odds.</span></span></span><b class="val">10.00</b></header>
+        <div class="slot"></div>
+      </div>
+    </div>
+    <div class="row" data-axis="v">
+      <label class="toggle"><input type="checkbox" data-graph="v"><span>graph</span></label>
+      <div class="body">
+        <header><span class="lbl-group"><span>veteran score bonus</span><span class="info" tabindex="0">i<span class="tip"><b>ELI5:</b> sticking around longer makes a member worth a little more to the clan.<br><b>advanced:</b> max fractional bonus to a member's score contribution as tenure &rarr; &infin;.</span></span></span><b class="val">0.300</b></header>
+        <div class="slot"></div>
+      </div>
+    </div>
+    <div class="row" data-axis="h">
+      <label class="toggle"><input type="checkbox" data-graph="h"><span>graph</span></label>
+      <div class="body">
+        <header><span class="lbl-group"><span>veteran bonus half-life (days) — log</span><span class="info" tabindex="0">i<span class="tip"><b>ELI5:</b> how many days until a veteran is basically "maxed out" in value.<br><b>advanced:</b> half-life of weight(t) = 1 + v&middot;(1-e<sup>-t/halflife</sup>) approaching saturation.</span></span></span><b class="val">30.00</b></header>
+        <div class="slot"></div>
+      </div>
+    </div>
+    <div class="row" data-axis="p">
+      <label class="toggle"><input type="checkbox" data-graph="p"><span>graph</span></label>
+      <div class="body">
+        <header><span class="lbl-group"><span>inactive recruitment penalty</span><span class="info" tabindex="0">i<span class="tip"><b>ELI5:</b> a clan full of ghosts scares off new people.<br><b>advanced:</b> scales join chance by (1 - p &times; inactive_fraction).</span></span></span><b class="val">0.500</b></header>
+        <div class="slot"></div>
+      </div>
+    </div>
+    <div class="row leader-row">
+      <div class="body" style="grid-column: 1 / -1;">
+        <header><span class="lbl-group"><span>reserved leader slot</span><span class="info" tabindex="0">i<span class="tip"><b>ELI5:</b> one seat is always for the leader, who never goes quiet.<br><b>advanced:</b> reserves 1 slot that's always active, excluded from hazard/kick/join math; effective capacity becomes n-1 for everyone else.</span></span></span><b class="val">always on</b></header>
+      </div>
+    </div>
+  </div>
+
+  <div id="advisor">
+    <h2>ask the advisor: what should I actually do right now?</h2>
+    <div class="roster-bar-wrap">
+      <div class="roster-bar">
+        <div class="seg active" id="seg-active"></div>
+        <div class="seg inactive" id="seg-inactive"></div>
+      </div>
+      <input type="range" id="adv-active-range" class="roster-range top" min="0" max="50" step="1" value="40">
+      <input type="range" id="adv-total-range" class="roster-range bottom" min="0" max="50" step="1" value="50">
+    </div>
+    <div class="roster-labels">
+      <span><i class="dot active"></i> <b id="lbl-active">40</b> active</span>
+      <span><i class="dot inactive"></i> <b id="lbl-inactive">10</b> inactive</span>
+      <span><b id="lbl-open">0</b> open slots (cap <b id="lbl-n">50</b>)</span>
+    </div>
+    <div id="advisor-out">drag the bar above to match your clan's current state.</div>
+  </div>
+
+<script>
+const AXES = {
+  n: { lo: 2,   hi: 200,  log: false, int: true,  init: 50,  label: "n" },
+  i: { lo: 0,   hi: 100,  log: true,  int: false, init: 0.954, label: "i" }, // Ducheneaut et al. 2007: ~25%/month WoW guild churn -> daily hazard
+  m: { lo: 0,   hi: 1000, log: true,  int: false, init: 200, label: "m" },
+  b: { lo: 0,   hi: 5,    log: false, int: false, init: 1.0, label: "b" },
+  d: { lo: 1,   hi: 90,   log: true,  int: false, init: 10,  label: "d" },
+  v: { lo: 0,   hi: 2,    log: false, int: false, init: 0.3, label: "v" },
+  h: { lo: 1,   hi: 365,  log: true,  int: false, init: 30,  label: "h" },
+  p: { lo: 0,   hi: 1,    log: false, int: false, init: 0.5, label: "p" },
+};
+const AXIS_KEYS = Object.keys(AXES);
+
+const state = {};
+const graph = {};
+const precision = {}; // sample count per axis when swept
+for (const a of AXIS_KEYS) { state[a] = AXES[a].init; graph[a] = false; precision[a] = 25; }
+const rows = {};
+
+const PRECISION_MIN = 5;
+const PRECISION_MAX_LINE = 200;
+const PRECISION_MAX_SURFACE = 40;
+const RESTART_DEBOUNCE_MS = 180;
+const MAX_DAYS = 150000;
+const EMIT_EVERY = 50;
+const SLEEP_US = 300;
+
+// ---- axis math ----
+function toActual(axis, sliderT) {
+  const A = AXES[axis];
+  if (!A.log) return A.lo + sliderT * (A.hi - A.lo);
+  return Math.exp(sliderT * Math.log(1 + A.hi - A.lo)) - 1 + A.lo;
+}
+function toSlider(axis, actual) {
+  const A = AXES[axis];
+  if (!A.log) return (actual - A.lo) / (A.hi - A.lo);
+  return Math.log(1 + actual - A.lo) / Math.log(1 + A.hi - A.lo);
+}
+function fmtValue(axis) {
+  const A = AXES[axis];
+  const v = state[axis];
+  if (A.int) return String(v);
+  const abs = Math.abs(v);
+  if (abs < 1) return v.toFixed(4);
+  if (abs < 10) return v.toFixed(3);
+  if (abs < 100) return v.toFixed(2);
+  return v.toFixed(2);
+}
+
+// ---- row construction ----
+function buildValueSlider(axis) {
+  const A = AXES[axis];
+  const slider = document.createElement('input');
+  slider.type = 'range';
+  if (A.int) {
+    slider.min = A.lo; slider.max = A.hi; slider.step = 1; slider.value = A.init;
+  } else {
+    slider.min = 0; slider.max = 1; slider.step = 'any';
+    slider.value = toSlider(axis, A.init);
+  }
+  slider.addEventListener('input', () => {
+    if (A.int) state[axis] = +slider.value;
+    else state[axis] = toActual(axis, +slider.value);
+    rows[axis]._val.textContent = fmtValue(axis);
+    restartStream();
+    updateAdvisor();
+  });
+  return slider;
+}
+
+function buildPrecisionSlider(axis) {
+  const wrap = document.createElement('div');
+  wrap.style.display = 'flex';
+  wrap.style.flexDirection = 'column';
+  wrap.style.gap = '.2rem';
+  const sub = document.createElement('div');
+  sub.className = 'sub';
+  const label = document.createElement('span');
+  label.textContent = 'precision (samples)';
+  const value = document.createElement('span');
+  sub.appendChild(label);
+  sub.appendChild(value);
+  const slider = document.createElement('input');
+  slider.type = 'range';
+  slider.min = PRECISION_MIN;
+  const anyGraphs = Object.values(graph).filter(Boolean).length;
+  const maxP = anyGraphs >= 2 ? PRECISION_MAX_SURFACE : PRECISION_MAX_LINE;
+  slider.max = maxP;
+  slider.step = 1;
+  slider.value = Math.min(precision[axis], maxP);
+  precision[axis] = +slider.value;
+  const setLabel = () => { value.textContent = `${slider.value} pts`; };
+  setLabel();
+  slider.addEventListener('input', () => {
+    precision[axis] = +slider.value;
+    setLabel();
+    restartStream();
+  });
+  wrap.appendChild(sub);
+  wrap.appendChild(slider);
+  return wrap;
+}
+
+document.querySelectorAll('.row[data-axis]').forEach(row => {
+  const axis = row.dataset.axis;
+  rows[axis] = row;
+  const slot = row.querySelector('.slot');
+  const val = row.querySelector('.val');
+  const cb = row.querySelector('input[type=checkbox]');
+
+  const A = AXES[axis];
+  state[axis] = A.init;
+
+  const valueSlider = buildValueSlider(axis);
+  slot.appendChild(valueSlider);
+  val.textContent = fmtValue(axis);
+
+  cb.addEventListener('change', () => {
+    if (cb.checked && Object.values(graph).filter(Boolean).length >= 2) {
+      // block third
+      cb.checked = false;
+      return;
+    }
+    graph[axis] = cb.checked;
+    updateRowMode(axis);
+    updateCheckboxDisabledState();
+    restartStream();
+  });
+
+  row._val = val;
+  row._slot = slot;
+  row._cb = cb;
+});
+
+function updateRowMode(axis) {
+  const row = rows[axis];
+  row.classList.toggle('swept', graph[axis]);
+  row._slot.innerHTML = '';
+  if (graph[axis]) {
+    row._slot.appendChild(buildPrecisionSlider(axis));
+    row._val.textContent = 'swept';
+  } else {
+    row._slot.appendChild(buildValueSlider(axis));
+    row._val.textContent = fmtValue(axis);
+  }
+}
+
+function updateCheckboxDisabledState() {
+  const count = Object.values(graph).filter(Boolean).length;
+  for (const a of AXIS_KEYS) {
+    const cb = rows[a]._cb;
+    if (count >= 2 && !graph[a]) cb.disabled = true;
+    else cb.disabled = false;
+  }
+}
+
+// ---- streaming ----
+const $out = document.getElementById('out');
+const $outCaption = document.getElementById('out-caption');
+const $graph = document.getElementById('graph-area');
+const $dayVal = document.getElementById('day-val');
+const $dayRange = document.getElementById('day-range');
+
+let es = null;
+let currentLayout = null;
+let plotInit = false;
+let pendingData = null;
+let rafScheduled = false;
+let paused = false;
+let restartTimer = null;
+
+const $pauseBtn = document.getElementById('pause-btn');
+function togglePause() {
+  paused = !paused;
+  $pauseBtn.textContent = paused ? 'resume' : 'pause';
+  $pauseBtn.classList.toggle('paused', paused);
+  if (paused) {
+    closeStream();
+    if (restartTimer) { clearTimeout(restartTimer); restartTimer = null; }
+  } else {
+    openStreamNow();
+  }
+}
+$pauseBtn.addEventListener('click', togglePause);
+document.addEventListener('keydown', (e) => {
+  if (e.code === 'Space' && e.target.tagName !== 'INPUT' && e.target.tagName !== 'BUTTON') {
+    e.preventDefault();
+    togglePause();
+  }
+});
+
+function closeStream() {
+  if (es) { es.close(); es = null; }
+  $dayVal.classList.remove('running');
+  pendingData = null;
+}
+
+function scheduleRender() {
+  if (rafScheduled) return;
+  rafScheduled = true;
+  requestAnimationFrame(() => {
+    rafScheduled = false;
+    if (!pendingData || !currentLayout) return;
+    const d = pendingData;
+    pendingData = null;
+    $dayVal.textContent = d.day.toLocaleString();
+    render(d);
+  });
+}
+
+function restartStream() {
+  // called from user interactions: kill any current stream immediately so CPU is
+  // freed, but debounce the new stream to coalesce rapid clicks / drags.
+  closeStream();
+  if (restartTimer) { clearTimeout(restartTimer); restartTimer = null; }
+  if (paused) return;
+  restartTimer = setTimeout(() => {
+    restartTimer = null;
+    openStreamNow();
+  }, RESTART_DEBOUNCE_MS);
+}
+
+function openStreamNow() {
+  closeStream();
+  plotInit = false;
+  currentLayout = null;
+
+  const active = AXIS_KEYS.filter(a => graph[a]);
+  const anyGraph = active.length > 0;
+
+  $out.classList.toggle('hidden', anyGraph);
+  $outCaption.classList.toggle('hidden', anyGraph);
+  $graph.classList.toggle('visible', anyGraph);
+  if (!anyGraph) {
+    Plotly.purge($graph);
+  }
+
+  const params = new URLSearchParams();
+  for (const a of AXIS_KEYS) {
+    params.set(a, AXES[a].int ? String(state[a]) : state[a].toFixed(6));
+  }
+  params.set('graphs', active.join(','));
+  params.set('max_days', String(MAX_DAYS));
+  params.set('emit_every', String(EMIT_EVERY));
+  params.set('sleep_us', String(SLEEP_US));
+  if (active.length >= 1) params.set('px', String(precision[active[0]]));
+  if (active.length >= 2) params.set('pz', String(precision[active[1]]));
+
+  $dayVal.textContent = '1';
+  $dayVal.classList.add('running');
+  $dayRange.textContent = `of ${MAX_DAYS.toLocaleString()}`;
+
+  es = new EventSource('/stream?' + params.toString());
+  es.onmessage = onSSE;
+  es.onerror = () => {
+    // stream closed by server (finished) or network drop
+    $dayVal.classList.remove('running');
+    if (es) { es.close(); es = null; }
+  };
+}
+
+function onSSE(evt) {
+  const d = JSON.parse(evt.data);
+  if (d.type === 'layout') {
+    currentLayout = d;
+    return;
+  }
+  if (!currentLayout) return;
+  pendingData = d; // latest wins; renderer only draws once per animation frame
+  scheduleRender();
+}
+
+function render(d) {
+  const L = currentLayout;
+  if (L.mode === 'point') {
+    $out.textContent = d.ys[0];
+    $outCaption.innerHTML = pointCaption(d.ys[0], L.n_val);
+  } else if (L.mode === 'line') {
+    renderLine(d.ys);
+  } else if (L.mode === 'surface') {
+    renderSurface(d.ys);
+  }
+}
+
+function pointCaption(count, n) {
+  const pct = ((count / n) * 100).toFixed(0);
+  return `this is the roster-size <b>kick threshold</b>: let inactive members ` +
+    `sit below <b>${count} / ${n}</b> members (${pct}% full) &mdash; only start ` +
+    `purging them once the roster reaches this size, to free up room for ` +
+    `recruits. it maximizes total active-member-days under the current odds.`;
+}
+
+function axisLabel(axis) {
+  return ({
+    n: 'max clan members (n)', i: 'inactive odds (%)', m: 'max join odds',
+    b: 'early-churn boost', d: 'early-churn half-life (days)',
+    v: 'veteran score bonus', h: 'veteran bonus half-life (days)',
+    p: 'inactive recruitment penalty',
+  })[axis];
+}
+
+function renderLine(ys) {
+  const L = currentLayout;
+  const data = [{
+    x: L.xs,
+    y: ys,
+    type: 'scatter',
+    mode: 'lines+markers',
+    line: { color: '#eee', width: 1.5, shape: 'linear' },
+    marker: { color: '#eee', size: 4 },
+    hovertemplate: `${L.axis} = %{x:.4g}<br>best count = %{y}<extra></extra>`,
+  }];
+  const layout = {
+    paper_bgcolor: '#191919', plot_bgcolor: '#191919',
+    font: { color: '#ccc', family: 'ui-monospace, monospace', size: 11 },
+    margin: { l: 50, r: 20, t: 20, b: 50 },
+    xaxis: {
+      title: axisLabel(L.axis),
+      type: L.log ? 'log' : 'linear',
+      gridcolor: '#333',
+      zerolinecolor: '#333',
+    },
+    yaxis: {
+      title: 'optimal count',
+      range: [0, L.y_cap],
+      gridcolor: '#333',
+      zerolinecolor: '#333',
+    },
+  };
+  const config = { displayModeBar: false, responsive: true };
+  if (!plotInit) {
+    Plotly.newPlot($graph, data, layout, config);
+    plotInit = true;
+  } else {
+    Plotly.react($graph, data, layout, config);
+  }
+}
+
+function renderSurface(ys) {
+  const L = currentLayout;
+  const cols = L.xs.length;
+  const rows = L.zs.length;
+  const z = [];
+  for (let r = 0; r < rows; r++) {
+    z.push(ys.slice(r * cols, (r + 1) * cols));
+  }
+  const data = [{
+    x: L.xs, y: L.zs, z: z,
+    type: 'surface',
+    colorscale: [[0, '#222'], [0.5, '#5a8fd8'], [1, '#fff']],
+    showscale: true,
+    hovertemplate: `${L.axis_x} = %{x:.4g}<br>${L.axis_z} = %{y:.4g}<br>best count = %{z}<extra></extra>`,
+    contours: { z: { show: true, usecolormap: true, project: { z: true } } },
+  }];
+  const layout = {
+    paper_bgcolor: '#191919', plot_bgcolor: '#191919',
+    font: { color: '#ccc', family: 'ui-monospace, monospace', size: 11 },
+    margin: { l: 0, r: 0, t: 0, b: 0 },
+    scene: {
+      xaxis: { title: axisLabel(L.axis_x), type: L.log_x ? 'log' : 'linear',
+               gridcolor: '#333', zerolinecolor: '#333', color: '#ccc' },
+      yaxis: { title: axisLabel(L.axis_z), type: L.log_z ? 'log' : 'linear',
+               gridcolor: '#333', zerolinecolor: '#333', color: '#ccc' },
+      zaxis: { title: 'optimal count', range: [0, L.y_cap],
+               gridcolor: '#333', zerolinecolor: '#333', color: '#ccc' },
+      bgcolor: '#191919',
+      camera: { eye: { x: 1.6, y: 1.6, z: 1.1 } },
+    },
+  };
+  const config = { displayModeBar: true, responsive: true,
+                   modeBarButtonsToRemove: ['toImage', 'orbitRotation', 'resetCameraDefault3d'] };
+  if (!plotInit) {
+    Plotly.newPlot($graph, data, layout, config);
+    plotInit = true;
+  } else {
+    Plotly.react($graph, data, layout, config);
+  }
+}
+
+// ---- advisor ----
+// Deliberately two independent inputs, active + inactive, rather than
+// "total + inactive" — total is always just their sum. Kicking only ever
+// removes inactive members (active count doesn't change), so active must
+// stay the stable, independently-set number; otherwise re-checking "what if
+// inactive were lower" while leaving total fixed silently implies active
+// members appeared from nowhere, which is exactly the trap that made the
+// advice look inconsistent.
+// The bar has two overlaid range inputs sharing [0, n]: the "active" handle
+// and the "total" handle (active+inactive). active <= total <= n is kept
+// true on every drag, so the green segment (active) and red segment
+// (inactive = total - active) can never imply more members than the clan's
+// own cap allows — unlike free-typed numbers, the slider physically can't
+// go there.
+const $rangeActive = document.getElementById('adv-active-range');
+const $rangeTotal = document.getElementById('adv-total-range');
+const $segActive = document.getElementById('seg-active');
+const $segInactive = document.getElementById('seg-inactive');
+const $lblActive = document.getElementById('lbl-active');
+const $lblInactive = document.getElementById('lbl-inactive');
+const $lblOpen = document.getElementById('lbl-open');
+const $lblN = document.getElementById('lbl-n');
+const $advOut = document.getElementById('advisor-out');
+let advTimer = null;
+
+function syncRosterBar() {
+  const n = state.n;
+  $rangeActive.max = n;
+  $rangeTotal.max = n;
+
+  let active = Math.min(+$rangeActive.value, n);
+  let total = Math.min(+$rangeTotal.value, n);
+  if (active > total) total = active;
+
+  $rangeActive.value = active;
+  $rangeTotal.value = total;
+
+  const inactive = total - active;
+  $segActive.style.width = (n > 0 ? active / n * 100 : 0) + '%';
+  $segInactive.style.width = (n > 0 ? inactive / n * 100 : 0) + '%';
+  $lblActive.textContent = active;
+  $lblInactive.textContent = inactive;
+  $lblOpen.textContent = n - total;
+  $lblN.textContent = n;
+
+  return { active, inactive, total, n };
+}
+
+function updateAdvisor() {
+  syncRosterBar();
+  if (advTimer) clearTimeout(advTimer);
+  advTimer = setTimeout(fetchAdvice, RESTART_DEBOUNCE_MS);
+}
+
+async function fetchAdvice() {
+  const { active, inactive, total } = syncRosterBar();
+
+  const params = new URLSearchParams();
+  for (const a of AXIS_KEYS) params.set(a, AXES[a].int ? String(state[a]) : state[a].toFixed(6));
+  params.set('total', String(total));
+  params.set('inactive', String(inactive));
+
+  try {
+    const res = await fetch('/advise?' + params.toString());
+    if (!res.ok) { $advOut.textContent = 'advisor error.'; return; }
+    renderAdvice(await res.json());
+  } catch (e) {
+    $advOut.textContent = 'advisor unreachable.';
+  }
+}
+
+function renderAdvice(d) {
+  // Holding active count fixed, the kick rule always trims inactive members
+  // down to exactly (best_count - active - 1) once you exceed it — trigger
+  // and target are the same number, so it collapses into one plain rule.
+  const Y = Math.max(0, d.best_count - d.active - 1);
+
+  let html = `your clan: <b>${d.total}</b> / ${d.n} members (<b>${d.active}</b> active, ` +
+             `<b>${d.inactive}</b> inactive).<br>`;
+  html += `<b>rule of thumb at your current active headcount: if inactive members exceed ` +
+          `${Y}, kick until you're back down to ${Y}.</b><br>`;
+  if (d.inactive > Y) {
+    const kickRounded = Math.round(d.kick_now);
+    html += `right now you have <b>${d.inactive}</b> inactive, above that line &mdash; ` +
+            `kick <b>${kickRounded}</b> today to get back to ${Y}.`;
+  } else {
+    html += `right now you have <b>${d.inactive}</b> inactive, at or below that line &mdash; no need to kick yet.`;
+  }
+  html += `<br>under these odds, long-run equilibrium settles around <b>${d.steady_active.toFixed(1)}</b> ` +
+          `active / <b>${d.steady_inactive.toFixed(1)}</b> inactive out of ${d.n}.`;
+  if (d.steady_active < d.n * 0.3) {
+    html += ` <span class="warn">warning: that's a steep decline from today's ${d.active} active &mdash; ` +
+            `current odds imply this clan isn't sustainable long-term.</span>`;
+  }
+  html += `<br>clan productivity score (veteran-weighted): <b>${d.current_productivity.toFixed(1)}</b> now ` +
+          `&rarr; <b>${d.steady_productivity.toFixed(1)}</b> at equilibrium.`;
+  $advOut.innerHTML = html;
+}
+
+$rangeActive.addEventListener('input', updateAdvisor);
+$rangeTotal.addEventListener('input', updateAdvisor);
+updateAdvisor();
+
+openStreamNow();
+</script>
+</body>
+</html>
