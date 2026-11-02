@@ -411,8 +411,8 @@ const PRECISION_MIN = 5;
 const PRECISION_MAX_LINE = 200;
 const MAX_SWEEP_POINTS = 1200;
 const RESTART_DEBOUNCE_MS = 180;
-const MAX_DAYS = 150000;
-const EMIT_EVERY = 50;
+const MAX_DAYS = 50000;
+const EMIT_EVERY = 25;
 const SLEEP_US = 300;
 
 // ---- axis math ----
@@ -549,15 +549,23 @@ const $dayRange = document.getElementById('day-range');
 let es = null;
 let currentLayout = null;
 let plotInit = false;
+let plotReady = false;
+let plotGeneration = 0;
 let pendingData = null;
 let rafScheduled = false;
 let paused = false;
 let restartTimer = null;
 let latestSurfaceYs = null;
+let displayedSurfaceZ = null;
 let currentSliceIndex = 0;
 let sliceTimer = null;
 let rotationTimer = null;
 let rotationAngle = 0;
+let rotationPending = false;
+let surfaceAnimationFrame = null;
+let surfaceAnimationToken = 0;
+let surfaceRestylePending = false;
+let surfaceRestyleToken = 0;
 
 const $pauseBtn = document.getElementById('pause-btn');
 function togglePause() {
@@ -613,9 +621,18 @@ function restartStream() {
 function openStreamNow() {
   closeStream();
   plotInit = false;
+  plotReady = false;
+  plotGeneration++;
   currentLayout = null;
   latestSurfaceYs = null;
+  displayedSurfaceZ = null;
   currentSliceIndex = 0;
+  rotationAngle = 0;
+  rotationPending = false;
+  surfaceRestylePending = false;
+  surfaceRestyleToken = 0;
+  surfaceAnimationToken++;
+  if (surfaceAnimationFrame !== null) cancelAnimationFrame(surfaceAnimationFrame);
   clearInterval(sliceTimer);
   clearInterval(rotationTimer);
 
@@ -626,9 +643,7 @@ function openStreamNow() {
   $outCaption.classList.toggle('hidden', anyGraph);
   $graph.classList.toggle('visible', anyGraph);
   $dimensionSpace.classList.toggle('visible', anyGraph);
-  if (!anyGraph) {
-    Plotly.purge($graph);
-  }
+  Plotly.purge($graph);
 
   const params = new URLSearchParams();
   for (const a of AXIS_KEYS) {
@@ -725,6 +740,7 @@ function renderLine(ys) {
     paper_bgcolor: '#191919', plot_bgcolor: '#191919',
     font: { color: '#ccc', family: 'ui-monospace, monospace', size: 11 },
     margin: { l: 50, r: 20, t: 20, b: 50 },
+    transition: { duration: 200, easing: 'linear' },
     xaxis: {
       title: axisLabel(L.axis),
       type: L.log ? 'log' : 'linear',
@@ -796,19 +812,56 @@ function renderSurface(ys) {
   const config = { displayModeBar: true, responsive: true,
                    modeBarButtonsToRemove: ['toImage', 'orbitRotation', 'resetCameraDefault3d'] };
   if (!plotInit) {
-    Plotly.newPlot($graph, data, layout, config);
+    const generation = plotGeneration;
+    Plotly.newPlot($graph, data, layout, config).then(() => {
+      if (generation !== plotGeneration) return;
+      plotReady = true;
+      rotationTimer = setInterval(() => {
+        if (!plotInit || !currentLayout || currentLayout.mode !== 'surface' || rotationPending) return;
+        rotationAngle += 0.008;
+        rotationPending = true;
+        Plotly.relayout($graph, { 'scene.camera.eye': {
+          x: 2.0 * Math.cos(rotationAngle), y: 2.0 * Math.sin(rotationAngle), z: 1.25,
+        } }).then(() => { rotationPending = false; }, () => { rotationPending = false; });
+      }, 50);
+      renderSurface(latestSurfaceYs);
+    });
     plotInit = true;
-    rotationAngle = 0;
-    rotationTimer = setInterval(() => {
-      if (!plotInit || !currentLayout || currentLayout.mode !== 'surface') return;
-      rotationAngle += 0.035;
-      Plotly.relayout($graph, { 'scene.camera.eye': {
-        x: 2.0 * Math.cos(rotationAngle), y: 2.0 * Math.sin(rotationAngle), z: 1.25,
-      } });
-    }, 300);
+    displayedSurfaceZ = z;
   } else {
-    Plotly.react($graph, data, layout, config);
+    if (plotReady) animateSurfaceTo(z);
   }
+}
+
+function animateSurfaceTo(target) {
+  const token = ++surfaceAnimationToken;
+  if (surfaceAnimationFrame !== null) cancelAnimationFrame(surfaceAnimationFrame);
+  const from = displayedSurfaceZ || target;
+  const started = performance.now();
+  const duration = 450;
+  let lastDraw = 0;
+  let finalSubmitted = false;
+  const draw = now => {
+    if (token !== surfaceAnimationToken) return;
+    const raw = Math.min(1, (now - started) / duration);
+    if (!finalSubmitted && !surfaceRestylePending && (now - lastDraw >= 45 || raw === 1)) {
+      const eased = raw * raw * (3 - 2 * raw);
+      const frame = target.map((row, r) => row.map((value, c) => from[r][c] + (value - from[r][c]) * eased));
+      surfaceRestylePending = true;
+      surfaceRestyleToken = token;
+      if (raw === 1) finalSubmitted = true;
+      lastDraw = now;
+      Plotly.restyle($graph, { z: [frame] }, [0]).then(() => {
+        if (surfaceRestyleToken === token) {
+          displayedSurfaceZ = frame;
+          surfaceRestylePending = false;
+        }
+      }, () => { if (surfaceRestyleToken === token) surfaceRestylePending = false; });
+    }
+    if (!finalSubmitted || surfaceRestylePending) surfaceAnimationFrame = requestAnimationFrame(draw);
+    else surfaceAnimationFrame = null;
+  };
+  surfaceAnimationFrame = requestAnimationFrame(draw);
 }
 
 // ---- advisor ----
