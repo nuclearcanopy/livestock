@@ -5,6 +5,7 @@
 <title>livestock</title>
 <script src="https://cdn.plot.ly/plotly-2.35.2.min.js"></script>
 <style>
+  [hidden] { display: none !important; }
   html, body {
     margin: 0;
     min-height: 100%;
@@ -86,12 +87,23 @@
 
   #graph-area {
     width: min(1000px, 100%);
-    height: 460px;
+    height: 560px;
     display: none;
-    background: #191919;
+    position: relative;
+    overflow: hidden;
+    background: radial-gradient(ellipse at 50% 46%, #171d35 0, #0b0d16 52%, #08090d 100%);
     border-radius: 4px;
+    touch-action: none;
   }
   #graph-area.visible { display: block; }
+  #plot-area { position: absolute; inset: 0; }
+  #plot-area canvas { display: block; width: 100%; height: 100%; cursor: grab; }
+  #plot-area canvas:active { cursor: grabbing; }
+  #field-hud { position: absolute; top: .8rem; left: .9rem; color: #b9c6ed; font-size: .68rem; pointer-events: none; text-shadow: 0 1px 5px #000; }
+  #field-hud b { color: #fff; }
+  #field-legend { position: absolute; right: .9rem; bottom: .8rem; display: flex; align-items: center; gap: .5rem; color: #aaa; font-size: .65rem; pointer-events: none; }
+  #field-legend i { width: 5rem; height: .35rem; background: linear-gradient(90deg,#3167ff,#53f2d0,#ffb45e); }
+  #field-message { position: absolute; inset: 0; display: grid; place-items: center; padding: 2rem; color: #c0c9e8; text-align: center; font-size: .85rem; pointer-events: none; }
   #dimension-space {
     display: none;
     width: min(1000px, 100%);
@@ -113,14 +125,16 @@
   .dimension-tags { display: flex; flex-wrap: wrap; gap: .35rem; margin-top: .8rem; }
   .dimension-tags span { padding: .2rem .4rem; border: 1px solid #39384e; color: #b8b5d4; font-size: .65rem; }
   .dimension-tags .time-dimension { border-color: #ad77e8; color: #e3c6ff; }
-  .hypercube { position: relative; flex: none; width: 140px; height: 130px; perspective: 400px; }
-  .hypercube i { position: absolute; top: 50%; left: 50%; width: 82px; height: 82px; border: 1px solid #aaa0ff; transform: translate(-50%,-50%) rotate(35deg) skew(-8deg,-8deg); animation: dimension-drift 9s ease-in-out infinite alternate; }
-  .hypercube i:nth-child(2) { width: 58px; height: 58px; border-color: #60c9d9; transform: translate(-50%,-50%) rotate(-35deg) skew(8deg,8deg); animation-delay: -3s; }
-  .hypercube i:nth-child(3) { width: 32px; height: 32px; border-color: #e69bff; animation-delay: -6s; }
-  .hypercube b { position: absolute; top: 50%; left: 50%; width: 5px; height: 5px; border-radius: 50%; background: #fff; box-shadow: 0 0 16px 5px #bb8cff; animation: dimension-pulse 2s ease-in-out infinite alternate; }
-  @keyframes dimension-drift { to { rotate: 28deg; scale: .82; } }
-  @keyframes dimension-pulse { to { scale: 2.5; opacity: .55; } }
-  @media(max-width:620px) { #dimension-space { gap: .5rem; padding: .8rem; } .hypercube { width: 78px; scale: .72; margin: 0 -12px; } }
+  #field-controls { display: flex; flex-wrap: wrap; align-items: center; gap: .75rem 1.2rem; margin-top: .8rem; color: #aaa; font-size: .72rem; }
+  #field-controls[hidden] { display: none; }
+  #field-controls label { display: flex; align-items: center; gap: .55rem; }
+  #iso-control[hidden] { display: none; }
+  #iso-threshold { width: min(240px, 35vw); accent-color: #8dcfff; }
+  #iso-value { min-width: 2.5rem; color: #fff; font-variant-numeric: tabular-nums; }
+  #field-controls button { background: #202331; color: #cbd4f5; border: 1px solid #414966; padding: .35rem .65rem; font: inherit; cursor: pointer; }
+  #field-controls button:hover { background: #2b3044; }
+  #field-controls button.active { color: #fff; border-color: #79d9ec; }
+  @media(max-width:620px) { #dimension-space { gap: .5rem; padding: .8rem; } #graph-area { height: 420px; } }
 
   .sliders {
     width: min(900px, 100%);
@@ -293,18 +307,27 @@
   </div>
   <div id="out">…</div>
   <div id="out-caption"></div>
-  <div id="graph-area"></div>
+  <div id="graph-area" aria-label="Interactive simulation data visualization">
+    <div id="plot-area"></div>
+    <div id="field-hud"></div>
+    <div id="field-message" hidden></div>
+    <div id="field-legend" hidden><i></i><span id="field-legend-label">low → high sensitivity</span></div>
+  </div>
   <section id="dimension-space" aria-label="Playful projection of the nine-dimensional simulation">
     <div class="dimension-copy">
       <h2>the 9D livestock hyperfield</h2>
       <p>An artistic projection, not literal 9D geometry: eight model knobs, plus simulation time. Every checked knob is swept; the view keeps moving through the combinations.</p>
-      <div id="sweep-status" aria-live="polite"></div>
+      <div id="sweep-status" aria-live="polite">Select two or more parameters to grow the field.</div>
       <div class="dimension-tags" aria-label="Eight model parameters and time">
         <span>capacity</span><span>inactivity</span><span>recruiting</span><span>newcomer churn</span>
         <span>churn decay</span><span>veteran value</span><span>veteran time</span><span>ghost penalty</span><span class="time-dimension">day ↗</span>
       </div>
     </div>
-    <div class="hypercube" aria-hidden="true"><i></i><i></i><i></i><b></b></div>
+    <div id="field-controls" hidden>
+      <label id="iso-control">surface threshold <input id="iso-threshold" type="range" min="0" max="200" step="0.1"><b id="iso-value">—</b></label>
+      <button id="wire-toggle" type="button" class="active">wireframe: on</button>
+      <button id="motion-toggle" type="button" class="active">pause shape</button>
+    </div>
   </section>
   <div class="sliders">
     <div class="row" data-axis="n">
@@ -540,9 +563,20 @@ function updateCheckboxDisabledState() {
 // ---- streaming ----
 const $out = document.getElementById('out');
 const $outCaption = document.getElementById('out-caption');
-const $graph = document.getElementById('graph-area');
+const $graphFrame = document.getElementById('graph-area');
+const $graph = document.getElementById('plot-area');
 const $dimensionSpace = document.getElementById('dimension-space');
 const $sweepStatus = document.getElementById('sweep-status');
+const $fieldMessage = document.getElementById('field-message');
+const $fieldHud = document.getElementById('field-hud');
+const $fieldLegend = document.getElementById('field-legend');
+const $fieldLegendLabel = document.getElementById('field-legend-label');
+const $fieldControls = document.getElementById('field-controls');
+const $isoControl = document.getElementById('iso-control');
+const $isoSlider = document.getElementById('iso-threshold');
+const $isoValue = document.getElementById('iso-value');
+const $wireToggle = document.getElementById('wire-toggle');
+const $motionToggle = document.getElementById('motion-toggle');
 const $dayVal = document.getElementById('day-val');
 const $dayRange = document.getElementById('day-range');
 
@@ -555,17 +589,36 @@ let pendingData = null;
 let rafScheduled = false;
 let paused = false;
 let restartTimer = null;
-let latestSurfaceYs = null;
-let displayedSurfaceZ = null;
-let currentSliceIndex = 0;
-let sliceTimer = null;
-let rotationTimer = null;
-let rotationAngle = 0;
-let rotationPending = false;
-let surfaceAnimationFrame = null;
-let surfaceAnimationToken = 0;
-let surfaceRestylePending = false;
-let surfaceRestyleToken = 0;
+let hyperfieldLayout = null;
+let hyperfieldModule = null;
+let hyperfieldRenderer = null;
+let hyperfieldScene = null;
+let hyperfieldCamera = null;
+let hyperfieldFrame = null;
+let hyperfieldResize = null;
+let hyperfieldMesh = null;
+let hyperfieldWire = null;
+let hyperfieldGlow = null;
+let hyperfieldMaterials = null;
+let hyperfieldValuesFrom = null;
+let hyperfieldValuesTo = null;
+let hyperfieldValuesStarted = 0;
+let hyperfieldMotionTime = 0;
+let hyperfieldLastFrame = 0;
+let hyperfieldLastBuild = 0;
+let hyperfieldNeedsBuild = false;
+let hyperfieldForceBuild = false;
+let hyperfieldPaused = false;
+let hyperfieldWireframe = true;
+let hyperfieldThreshold = null;
+let hyperfieldThresholdTouched = false;
+let hyperfieldDragging = false;
+let hyperfieldPointer = null;
+let hyperfieldYaw = 0.45;
+let hyperfieldPitch = 0.28;
+let hyperfieldDistance = 3.4;
+let hyperfieldGridResolution = 22;
+const HYPERFIELD_THREE_URL = 'https://cdn.jsdelivr.net/npm/three@0.180.0/build/three.module.js';
 
 const $pauseBtn = document.getElementById('pause-btn');
 function togglePause() {
@@ -580,6 +633,24 @@ function togglePause() {
   }
 }
 $pauseBtn.addEventListener('click', togglePause);
+$motionToggle.addEventListener('click', () => {
+  hyperfieldPaused = !hyperfieldPaused;
+  $motionToggle.textContent = hyperfieldPaused ? 'resume shape' : 'pause shape';
+  $motionToggle.classList.toggle('active', !hyperfieldPaused);
+  if (!hyperfieldPaused) hyperfieldNeedsBuild = true;
+});
+$wireToggle.addEventListener('click', () => {
+  hyperfieldWireframe = !hyperfieldWireframe;
+  $wireToggle.textContent = `wireframe: ${hyperfieldWireframe ? 'on' : 'off'}`;
+  $wireToggle.classList.toggle('active', hyperfieldWireframe);
+  if (hyperfieldWire) hyperfieldWire.visible = hyperfieldWireframe;
+});
+$isoSlider.addEventListener('input', () => {
+  hyperfieldThreshold = +$isoSlider.value;
+  hyperfieldThresholdTouched = true;
+  $isoValue.textContent = hyperfieldThreshold.toFixed(1);
+  hyperfieldForceBuild = true;
+});
 document.addEventListener('keydown', (e) => {
   if (e.code === 'Space' && e.target.tagName !== 'INPUT' && e.target.tagName !== 'BUTTON') {
     e.preventDefault();
@@ -623,25 +694,19 @@ function openStreamNow() {
   plotInit = false;
   plotReady = false;
   plotGeneration++;
+  destroyHyperfield();
   currentLayout = null;
-  latestSurfaceYs = null;
-  displayedSurfaceZ = null;
-  currentSliceIndex = 0;
-  rotationAngle = 0;
-  rotationPending = false;
-  surfaceRestylePending = false;
-  surfaceRestyleToken = 0;
-  surfaceAnimationToken++;
-  if (surfaceAnimationFrame !== null) cancelAnimationFrame(surfaceAnimationFrame);
-  clearInterval(sliceTimer);
-  clearInterval(rotationTimer);
+  $fieldControls.hidden = true;
+  $fieldLegend.hidden = true;
+  $fieldMessage.hidden = true;
+  $fieldHud.textContent = '';
 
   const active = AXIS_KEYS.filter(a => graph[a]);
   const anyGraph = active.length > 0;
 
   $out.classList.toggle('hidden', anyGraph);
   $outCaption.classList.toggle('hidden', anyGraph);
-  $graph.classList.toggle('visible', anyGraph);
+  $graphFrame.classList.toggle('visible', anyGraph);
   $dimensionSpace.classList.toggle('visible', anyGraph);
   Plotly.purge($graph);
 
@@ -673,20 +738,20 @@ function onSSE(evt) {
   if (d.type === 'layout') {
     currentLayout = d;
     if (d.mode === 'surface') {
-      const combos = d.extra_axes.reduce((total, dimension) => total * dimension.values.length, 1);
-      const motion = combos > 1 ? `${combos.toLocaleString()} auto-cycling slices` : 'camera auto-rotates';
-      $sweepStatus.textContent = `${d.set_count.toLocaleString()} combinations · ${d.sample_counts[d.axis_x]} × ${d.sample_counts[d.axis_z]} visible grid · ${motion}`;
-      if (combos > 1) {
-        sliceTimer = setInterval(() => {
-          if (!latestSurfaceYs || !currentLayout) return;
-          const count = currentLayout.extra_axes.reduce((total, dimension) => total * dimension.values.length, 1);
-          currentSliceIndex = (currentSliceIndex + 1) % count;
-          renderSurface(latestSurfaceYs);
-        }, 1500);
-      }
+      const dims = d.dimensions.map(dimension => dimension.values.length);
+      $sweepStatus.textContent = `${dims.length}D field · ${d.set_count.toLocaleString()} combinations · ${dims.join(' × ')} samples`;
+      $fieldControls.hidden = false;
+      $fieldLegend.hidden = false;
+      $isoControl.hidden = dims.length < 3;
+      $fieldLegendLabel.textContent = dims.length < 3 ? 'low → high threshold' : 'low → high sensitivity';
+      setupHyperfield(d);
     } else if (d.mode === 'line') {
+      $fieldControls.hidden = true;
+      $fieldLegend.hidden = true;
       $sweepStatus.textContent = `${d.xs.length.toLocaleString()} values · the curve mutates as the simulation runs`;
     } else {
+      $fieldControls.hidden = true;
+      $fieldLegend.hidden = true;
       $sweepStatus.textContent = '';
     }
     return;
@@ -704,7 +769,7 @@ function render(d) {
   } else if (L.mode === 'line') {
     renderLine(d.ys);
   } else if (L.mode === 'surface') {
-    renderSurface(d.ys);
+    updateHyperfieldValues(d.ys);
   }
 }
 
@@ -763,105 +828,425 @@ function renderLine(ys) {
   }
 }
 
-function renderSurface(ys) {
-  const L = currentLayout;
-  latestSurfaceYs = ys;
-  const cols = L.xs.length;
-  const rows = L.zs.length;
-  const stride = cols * rows;
-  const offset = currentSliceIndex * stride;
-  const z = [];
-  for (let r = 0; r < rows; r++) {
-    z.push(ys.slice(offset + r * cols, offset + (r + 1) * cols));
-  }
-  if (L.extra_axes.length) {
-    let remainder = currentSliceIndex;
-    const selected = Array(L.extra_axes.length);
-    for (let i = L.extra_axes.length - 1; i >= 0; i--) {
-      const values = L.extra_axes[i].values;
-      const valueIndex = remainder % values.length;
-      remainder = Math.floor(remainder / values.length);
-      selected[i] = `${axisLabel(L.extra_axes[i].axis)} ${Number(values[valueIndex]).toPrecision(3)}`;
+let hyperfieldImport = null;
+function loadThree() {
+  if (!hyperfieldImport) hyperfieldImport = import(HYPERFIELD_THREE_URL);
+  return hyperfieldImport;
+}
+
+function destroyHyperfield() {
+  if (hyperfieldFrame !== null) cancelAnimationFrame(hyperfieldFrame);
+  hyperfieldFrame = null;
+  if (hyperfieldResize) hyperfieldResize.disconnect();
+  hyperfieldResize = null;
+  if (hyperfieldScene) hyperfieldScene.traverse(object => {
+    if (object.geometry) object.geometry.dispose();
+    if (object.material) {
+      if (Array.isArray(object.material)) object.material.forEach(material => material.dispose());
+      else object.material.dispose();
     }
-    const count = L.extra_axes.reduce((total, dimension) => total * dimension.values.length, 1);
-    $sweepStatus.textContent = `${L.set_count.toLocaleString()} combinations · view ${currentSliceIndex + 1}/${count}: ${selected.join(' · ')}`;
+  });
+  if (hyperfieldRenderer) {
+    hyperfieldRenderer.dispose();
+    hyperfieldRenderer.domElement.remove();
   }
-  const data = [{
-    x: L.xs, y: L.zs, z: z,
-    type: 'surface',
-    colorscale: [[0, '#222'], [0.5, '#5a8fd8'], [1, '#fff']],
-    showscale: true,
-    hovertemplate: `${L.axis_x} = %{x:.4g}<br>${L.axis_z} = %{y:.4g}<br>best count = %{z}<extra></extra>`,
-    contours: { z: { show: true, usecolormap: true, project: { z: true } } },
-  }];
-  const layout = {
-    paper_bgcolor: '#191919', plot_bgcolor: '#191919',
-    font: { color: '#ccc', family: 'ui-monospace, monospace', size: 11 },
-    margin: { l: 0, r: 0, t: 0, b: 0 },
-    scene: {
-      xaxis: { title: axisLabel(L.axis_x), type: L.log_x ? 'log' : 'linear',
-               gridcolor: '#333', zerolinecolor: '#333', color: '#ccc' },
-      yaxis: { title: axisLabel(L.axis_z), type: L.log_z ? 'log' : 'linear',
-               gridcolor: '#333', zerolinecolor: '#333', color: '#ccc' },
-      zaxis: { title: 'optimal count', range: [0, L.y_cap],
-               gridcolor: '#333', zerolinecolor: '#333', color: '#ccc' },
-      bgcolor: '#191919',
-      camera: { eye: { x: 2.0 * Math.cos(rotationAngle), y: 2.0 * Math.sin(rotationAngle), z: 1.25 } },
-    },
-  };
-  const config = { displayModeBar: true, responsive: true,
-                   modeBarButtonsToRemove: ['toImage', 'orbitRotation', 'resetCameraDefault3d'] };
-  if (!plotInit) {
-    const generation = plotGeneration;
-    Plotly.newPlot($graph, data, layout, config).then(() => {
-      if (generation !== plotGeneration) return;
-      plotReady = true;
-      rotationTimer = setInterval(() => {
-        if (!plotInit || !currentLayout || currentLayout.mode !== 'surface' || rotationPending) return;
-        rotationAngle += 0.008;
-        rotationPending = true;
-        Plotly.relayout($graph, { 'scene.camera.eye': {
-          x: 2.0 * Math.cos(rotationAngle), y: 2.0 * Math.sin(rotationAngle), z: 1.25,
-        } }).then(() => { rotationPending = false; }, () => { rotationPending = false; });
-      }, 50);
-      renderSurface(latestSurfaceYs);
-    });
-    plotInit = true;
-    displayedSurfaceZ = z;
-  } else {
-    if (plotReady) animateSurfaceTo(z);
+  hyperfieldRenderer = null;
+  hyperfieldScene = null;
+  hyperfieldCamera = null;
+  hyperfieldMesh = null;
+  hyperfieldWire = null;
+  hyperfieldGlow = null;
+  hyperfieldMaterials = null;
+  hyperfieldLayout = null;
+  hyperfieldValuesFrom = null;
+  hyperfieldValuesTo = null;
+  hyperfieldNeedsBuild = false;
+  hyperfieldForceBuild = false;
+}
+
+async function setupHyperfield(layout) {
+  const generation = plotGeneration;
+  hyperfieldLayout = layout;
+  hyperfieldValuesFrom = null;
+  hyperfieldValuesTo = null;
+  hyperfieldMotionTime = 0;
+  hyperfieldLastFrame = 0;
+  hyperfieldLastBuild = 0;
+  hyperfieldThreshold = null;
+  hyperfieldThresholdTouched = false;
+  hyperfieldPaused = false;
+  $motionToggle.textContent = 'pause shape';
+  $motionToggle.classList.add('active');
+  $isoSlider.max = layout.y_cap;
+  $isoSlider.value = layout.y_cap / 2;
+  $isoValue.textContent = (layout.y_cap / 2).toFixed(1);
+  $fieldMessage.hidden = false;
+  $fieldMessage.textContent = 'initializing the dimensional field…';
+  try {
+    const THREE = await loadThree();
+    if (generation !== plotGeneration || currentLayout !== layout) return;
+    initializeHyperfield(THREE);
+    $fieldMessage.hidden = true;
+  } catch (error) {
+    if (generation !== plotGeneration) return;
+    $fieldMessage.hidden = false;
+    $fieldMessage.textContent = '3D renderer unavailable. Check the connection to the Three.js CDN.';
+    $sweepStatus.textContent = 'Could not load the 3D renderer.';
   }
 }
 
-function animateSurfaceTo(target) {
-  const token = ++surfaceAnimationToken;
-  if (surfaceAnimationFrame !== null) cancelAnimationFrame(surfaceAnimationFrame);
-  const from = displayedSurfaceZ || target;
-  const started = performance.now();
-  const duration = 450;
-  let lastDraw = 0;
-  let finalSubmitted = false;
-  const draw = now => {
-    if (token !== surfaceAnimationToken) return;
-    const raw = Math.min(1, (now - started) / duration);
-    if (!finalSubmitted && !surfaceRestylePending && (now - lastDraw >= 45 || raw === 1)) {
-      const eased = raw * raw * (3 - 2 * raw);
-      const frame = target.map((row, r) => row.map((value, c) => from[r][c] + (value - from[r][c]) * eased));
-      surfaceRestylePending = true;
-      surfaceRestyleToken = token;
-      if (raw === 1) finalSubmitted = true;
-      lastDraw = now;
-      Plotly.restyle($graph, { z: [frame] }, [0]).then(() => {
-        if (surfaceRestyleToken === token) {
-          displayedSurfaceZ = frame;
-          surfaceRestylePending = false;
-        }
-      }, () => { if (surfaceRestyleToken === token) surfaceRestylePending = false; });
-    }
-    if (!finalSubmitted || surfaceRestylePending) surfaceAnimationFrame = requestAnimationFrame(draw);
-    else surfaceAnimationFrame = null;
+function initializeHyperfield(THREE) {
+  hyperfieldRenderer = new THREE.WebGLRenderer({ antialias: true, alpha: true, powerPreference: 'high-performance' });
+  hyperfieldRenderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 1.75));
+  hyperfieldRenderer.setSize($graph.clientWidth, $graph.clientHeight);
+  hyperfieldRenderer.outputColorSpace = THREE.SRGBColorSpace;
+  hyperfieldRenderer.toneMapping = THREE.ACESFilmicToneMapping;
+  $graph.appendChild(hyperfieldRenderer.domElement);
+
+  hyperfieldScene = new THREE.Scene();
+  hyperfieldScene.background = new THREE.Color('#080a12');
+  hyperfieldScene.fog = new THREE.FogExp2('#080a12', 0.045);
+  hyperfieldCamera = new THREE.PerspectiveCamera(42, $graph.clientWidth / $graph.clientHeight, 0.05, 80);
+  hyperfieldScene.add(new THREE.AmbientLight('#a9bcff', 1.5));
+  const keyLight = new THREE.PointLight('#79dfff', 3.2, 12);
+  keyLight.position.set(2.5, 3.2, 3.5);
+  hyperfieldScene.add(keyLight);
+  const warmLight = new THREE.PointLight('#a05cff', 2.4, 10);
+  warmLight.position.set(-3, -1.5, -2.5);
+  hyperfieldScene.add(warmLight);
+
+  const cageGeometry = new THREE.EdgesGeometry(new THREE.BoxGeometry(2.12, 2.12, 2.12));
+  const cage = new THREE.LineSegments(cageGeometry, new THREE.LineBasicMaterial({ color: '#30466e', transparent: true, opacity: 0.34 }));
+  hyperfieldScene.add(cage);
+  const stars = [];
+  let seed = 9173;
+  for (let i = 0; i < 480; i++) {
+    seed = (seed * 16807) % 2147483647;
+    stars.push(((seed / 2147483647) * 2 - 1) * 7);
+  }
+  const starGeometry = new THREE.BufferGeometry();
+  starGeometry.setAttribute('position', new THREE.Float32BufferAttribute(stars, 3));
+  hyperfieldScene.add(new THREE.Points(starGeometry, new THREE.PointsMaterial({ color: '#9cb8ff', size: 0.018, transparent: true, opacity: 0.52, sizeAttenuation: true })));
+
+  const halo = new THREE.Group();
+  const haloA = new THREE.Mesh(new THREE.TorusGeometry(1.3, 0.006, 6, 160), new THREE.MeshBasicMaterial({ color: '#5c78ff', transparent: true, opacity: 0.38 }));
+  haloA.rotation.x = 1.1;
+  const haloB = new THREE.Mesh(new THREE.TorusGeometry(1.48, 0.003, 6, 160), new THREE.MeshBasicMaterial({ color: '#5ce6d2', transparent: true, opacity: 0.2 }));
+  haloB.rotation.y = 0.9;
+  halo.add(haloA, haloB);
+  hyperfieldScene.add(halo);
+
+  hyperfieldMaterials = {
+    surface: new THREE.MeshPhysicalMaterial({ vertexColors: true, side: THREE.DoubleSide, transparent: true, opacity: 0.82, roughness: 0.24, metalness: 0.12, clearcoat: 0.9, emissive: '#10295c', emissiveIntensity: 0.72 }),
+    wire: new THREE.MeshBasicMaterial({ color: '#a6f3ff', wireframe: true, transparent: true, opacity: 0.24, depthWrite: false }),
   };
-  surfaceAnimationFrame = requestAnimationFrame(draw);
+  hyperfieldYaw = 0.45;
+  hyperfieldPitch = 0.28;
+  hyperfieldDistance = 3.4;
+  attachHyperfieldControls(THREE);
+  hyperfieldResize = new ResizeObserver(() => {
+    if (!hyperfieldRenderer || !hyperfieldCamera) return;
+    const width = Math.max(1, $graph.clientWidth), height = Math.max(1, $graph.clientHeight);
+    hyperfieldRenderer.setSize(width, height);
+    hyperfieldCamera.aspect = width / height;
+    hyperfieldCamera.updateProjectionMatrix();
+  });
+  hyperfieldResize.observe($graph);
+  hyperfieldNeedsBuild = true;
+  hyperfieldFrame = requestAnimationFrame(now => drawHyperfield(THREE, now));
+}
+
+function attachHyperfieldControls(THREE) {
+  const canvas = hyperfieldRenderer.domElement;
+  canvas.addEventListener('pointerdown', event => {
+    hyperfieldDragging = true;
+    hyperfieldPointer = { x: event.clientX, y: event.clientY };
+    canvas.setPointerCapture(event.pointerId);
+  });
+  canvas.addEventListener('pointerup', () => { hyperfieldDragging = false; hyperfieldPointer = null; });
+  canvas.addEventListener('pointercancel', () => { hyperfieldDragging = false; hyperfieldPointer = null; });
+  canvas.addEventListener('pointermove', event => {
+    if (!hyperfieldDragging || !hyperfieldPointer) return;
+    hyperfieldYaw -= (event.clientX - hyperfieldPointer.x) * 0.008;
+    hyperfieldPitch = Math.max(-1.25, Math.min(1.25, hyperfieldPitch + (event.clientY - hyperfieldPointer.y) * 0.008));
+    hyperfieldPointer = { x: event.clientX, y: event.clientY };
+  });
+  canvas.addEventListener('wheel', event => {
+    event.preventDefault();
+    hyperfieldDistance = Math.max(1.8, Math.min(7, hyperfieldDistance + event.deltaY * 0.003));
+  }, { passive: false });
+}
+
+function updateHyperfieldValues(values) {
+  const now = performance.now();
+  if (!hyperfieldValuesTo) {
+    hyperfieldValuesFrom = values;
+    hyperfieldValuesTo = values;
+  } else {
+    hyperfieldValuesFrom = currentHyperfieldValues(now);
+    hyperfieldValuesTo = values;
+  }
+  hyperfieldValuesStarted = now;
+  hyperfieldNeedsBuild = true;
+}
+
+function currentHyperfieldValues(now) {
+  if (!hyperfieldValuesTo) return null;
+  if (!hyperfieldValuesFrom || hyperfieldValuesFrom === hyperfieldValuesTo) return hyperfieldValuesTo;
+  const t = Math.min(1, (now - hyperfieldValuesStarted) / 520);
+  if (t >= 1) return hyperfieldValuesTo;
+  return hyperfieldValuesTo.map((value, i) => hyperfieldValuesFrom[i] + (value - hyperfieldValuesFrom[i]) * t);
+}
+
+function drawHyperfield(THREE, now) {
+  if (!hyperfieldRenderer || !hyperfieldScene || !hyperfieldCamera) return;
+  const dt = hyperfieldLastFrame ? Math.min(0.06, (now - hyperfieldLastFrame) / 1000) : 0;
+  hyperfieldLastFrame = now;
+  if (!hyperfieldPaused) {
+    hyperfieldMotionTime += dt;
+    if (!hyperfieldDragging) hyperfieldYaw += dt * 0.12;
+  }
+  hyperfieldCamera.position.set(
+    hyperfieldDistance * Math.sin(hyperfieldYaw) * Math.cos(hyperfieldPitch),
+    hyperfieldDistance * Math.sin(hyperfieldPitch),
+    hyperfieldDistance * Math.cos(hyperfieldYaw) * Math.cos(hyperfieldPitch),
+  );
+  hyperfieldCamera.lookAt(0, 0, 0);
+
+  const hasExtraAxes = hyperfieldLayout && hyperfieldLayout.dimensions.length > 3;
+  const shouldBuild = hyperfieldForceBuild || (!hyperfieldPaused && hyperfieldNeedsBuild) || (!hyperfieldPaused && hasExtraAxes && now - hyperfieldLastBuild > 140);
+  if (shouldBuild && now - hyperfieldLastBuild > 70) {
+    const values = currentHyperfieldValues(now);
+    if (values) buildHyperfield(THREE, values, now);
+    hyperfieldNeedsBuild = false;
+    hyperfieldForceBuild = false;
+    hyperfieldLastBuild = now;
+  }
+  hyperfieldRenderer.render(hyperfieldScene, hyperfieldCamera);
+  hyperfieldFrame = requestAnimationFrame(next => drawHyperfield(THREE, next));
+}
+
+function extraSlicePhase(now, dimensions) {
+  const counts = dimensions.slice(3).map(dimension => dimension.values.length);
+  const total = counts.reduce((product, count) => product * count, 1);
+  if (total <= 1) return { lower: 0, upper: 0, mix: 0, total };
+  const period = 2 * (total - 1);
+  let phase = (hyperfieldMotionTime / 2.5) % period;
+  if (phase > total - 1) phase = period - phase;
+  const lower = Math.floor(phase);
+  return { lower, upper: Math.min(total - 1, lower + 1), mix: phase - lower, total };
+}
+
+function buildHyperfield(THREE, source, now) {
+  const L = hyperfieldLayout;
+  if (!L || !hyperfieldScene) return;
+  const dims = L.dimensions;
+  const axisCount = dims.length;
+  const min = Math.min(...source), max = Math.max(...source);
+  if (!hyperfieldThresholdTouched && hyperfieldThreshold === null && axisCount >= 3) {
+    hyperfieldThreshold = (min + max) / 2;
+    $isoSlider.value = hyperfieldThreshold;
+    $isoValue.textContent = hyperfieldThreshold.toFixed(1);
+  }
+  if (axisCount === 2) {
+    $fieldMessage.hidden = true;
+    buildParameterSurface(THREE, source, dims, min, max);
+    updateFieldReadout(dims, null);
+    return;
+  }
+  const level = hyperfieldThreshold === null ? (min + max) / 2 : hyperfieldThreshold;
+  const phase = extraSlicePhase(now, dims);
+  updateFieldReadout(dims, phase);
+  if (max - min < 1e-5) {
+    clearHyperfieldMesh();
+    $fieldMessage.hidden = false;
+    $fieldMessage.textContent = `Uniform field at ${min.toFixed(1)}. The simulation found no threshold boundary in this sweep.`;
+    return;
+  }
+  if (level <= min || level >= max) {
+    clearHyperfieldMesh();
+    $fieldMessage.hidden = false;
+    $fieldMessage.textContent = `No contour at ${level.toFixed(1)}. Move the threshold inside ${min.toFixed(1)}–${max.toFixed(1)}.`;
+    return;
+  }
+  $fieldMessage.hidden = true;
+  const field = sampleVolumeField(source, dims, phase, hyperfieldGridResolution);
+  const geometry = extractIsosurface(THREE, field.values, field.gradients, field.resolution, level);
+  if (!geometry) {
+    clearHyperfieldMesh();
+    $fieldMessage.hidden = false;
+    $fieldMessage.textContent = 'This threshold does not cross the sampled field. Try another level.';
+    return;
+  }
+  replaceHyperfieldMesh(THREE, geometry);
+}
+
+function updateFieldReadout(dimensions, phase) {
+  const first = dimensions.slice(0, Math.min(3, dimensions.length)).map(d => {
+    const values = d.values;
+    return `${axisLabel(d.axis)} ${Number(values[0]).toPrecision(3)}–${Number(values[values.length - 1]).toPrecision(3)}`;
+  });
+  if (phase && phase.total > 1) {
+    const tailDimensions = dimensions.slice(3);
+    const decode = index => {
+      const positions = Array(tailDimensions.length);
+      for (let i = tailDimensions.length - 1; i >= 0; i--) {
+        const count = tailDimensions[i].values.length;
+        positions[i] = index % count;
+        index = Math.floor(index / count);
+      }
+      return positions;
+    };
+    const a = decode(phase.lower), b = decode(phase.upper);
+    tailDimensions.forEach((dimension, i) => {
+      const values = dimension.values;
+      const value = values[a[i]] + (values[b[i]] - values[a[i]]) * phase.mix;
+      first.push(`${axisLabel(dimension.axis)} ${Number(value).toPrecision(3)}`);
+    });
+  }
+  $fieldHud.innerHTML = `<b>${dimensions.length}D HYPERFIELD</b><br>${first.join('　·　')}<br>drag to orbit · scroll to zoom`;
+}
+
+function sampleVolumeField(source, dimensions, phase, resolution) {
+  const nx = dimensions[0].values.length;
+  const ny = dimensions[1].values.length;
+  const nz = dimensions[2].values.length;
+  const tailCount = dimensions.slice(3).reduce((product, dimension) => product * dimension.values.length, 1);
+  const values = new Float32Array(resolution ** 3);
+  const index = (x, y, z) => (z * resolution + y) * resolution + x;
+  const sliceValue = (slice, x, y, z) => source[((slice * nz + z) * ny + y) * nx + x];
+  const sampleSlice = (slice, x, y, z) => {
+    const px = x * (nx - 1), py = y * (ny - 1), pz = z * (nz - 1);
+    const x0 = Math.floor(px), y0 = Math.floor(py), z0 = Math.floor(pz);
+    const x1 = Math.min(nx - 1, x0 + 1), y1 = Math.min(ny - 1, y0 + 1), z1 = Math.min(nz - 1, z0 + 1);
+    const fx = px - x0, fy = py - y0, fz = pz - z0;
+    const c00 = sliceValue(slice, x0, y0, z0) * (1 - fx) + sliceValue(slice, x1, y0, z0) * fx;
+    const c10 = sliceValue(slice, x0, y1, z0) * (1 - fx) + sliceValue(slice, x1, y1, z0) * fx;
+    const c01 = sliceValue(slice, x0, y0, z1) * (1 - fx) + sliceValue(slice, x1, y0, z1) * fx;
+    const c11 = sliceValue(slice, x0, y1, z1) * (1 - fx) + sliceValue(slice, x1, y1, z1) * fx;
+    const low = c00 * (1 - fy) + c10 * fy;
+    const high = c01 * (1 - fy) + c11 * fy;
+    return low * (1 - fz) + high * fz;
+  };
+  for (let z = 0; z < resolution; z++) for (let y = 0; y < resolution; y++) for (let x = 0; x < resolution; x++) {
+    const fx = x / (resolution - 1), fy = y / (resolution - 1), fz = z / (resolution - 1);
+    const a = sampleSlice(phase.lower, fx, fy, fz);
+    const b = sampleSlice(phase.upper, fx, fy, fz);
+    values[index(x, y, z)] = a + (b - a) * phase.mix;
+  }
+  const gradients = new Float32Array(values.length);
+  let maxGradient = 0;
+  for (let z = 0; z < resolution; z++) for (let y = 0; y < resolution; y++) for (let x = 0; x < resolution; x++) {
+    const dx = (values[index(Math.min(resolution - 1, x + 1), y, z)] - values[index(Math.max(0, x - 1), y, z)]) * 0.5;
+    const dy = (values[index(x, Math.min(resolution - 1, y + 1), z)] - values[index(x, Math.max(0, y - 1), z)]) * 0.5;
+    const dz = (values[index(x, y, Math.min(resolution - 1, z + 1))] - values[index(x, y, Math.max(0, z - 1))]) * 0.5;
+    const magnitude = Math.sqrt(dx * dx + dy * dy + dz * dz);
+    gradients[index(x, y, z)] = magnitude;
+    maxGradient = Math.max(maxGradient, magnitude);
+  }
+  if (maxGradient > 0) for (let i = 0; i < gradients.length; i++) gradients[i] /= maxGradient;
+  return { values, gradients, resolution };
+}
+
+function colorForValue(THREE, t) {
+  const stops = [[0.12, 0.25, 1], [0.08, 0.98, 0.86], [0.92, 0.24, 1]];
+  const scaled = Math.max(0, Math.min(0.9999, t)) * 2;
+  const stop = Math.floor(scaled), mix = scaled - stop;
+  const a = stops[stop], b = stops[stop + 1];
+  return new THREE.Color(a[0] + (b[0] - a[0]) * mix, a[1] + (b[1] - a[1]) * mix, a[2] + (b[2] - a[2]) * mix);
+}
+
+function buildParameterSurface(THREE, source, dimensions, min, max) {
+  const nx = dimensions[0].values.length, ny = dimensions[1].values.length;
+  const positions = [], colors = [], indices = [];
+  const range = max - min || 1;
+  for (let y = 0; y < ny; y++) for (let x = 0; x < nx; x++) {
+    const value = source[y * nx + x];
+    const norm = (value - min) / range;
+    positions.push(-1 + 2 * x / Math.max(1, nx - 1), (norm - 0.5) * 1.25, -1 + 2 * y / Math.max(1, ny - 1));
+    const color = colorForValue(THREE, norm);
+    colors.push(color.r, color.g, color.b);
+  }
+  for (let y = 0; y < ny - 1; y++) for (let x = 0; x < nx - 1; x++) {
+    const a = y * nx + x, b = a + 1, c = a + nx, d = c + 1;
+    indices.push(a, c, b, b, c, d);
+  }
+  const geometry = new THREE.BufferGeometry();
+  geometry.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
+  geometry.setAttribute('color', new THREE.Float32BufferAttribute(colors, 3));
+  geometry.setIndex(indices);
+  geometry.computeVertexNormals();
+  replaceHyperfieldMesh(THREE, geometry);
+  $fieldMessage.hidden = true;
+  $sweepStatus.textContent = `2D response surface · color shows best kick threshold (${min}–${max}); select a third parameter to grow a volume.`;
+}
+
+function extractIsosurface(THREE, values, gradients, resolution, level) {
+  const positions = [], colors = [];
+  const plane = resolution * resolution;
+  const cornerOffsets = [[0,0,0],[1,0,0],[1,1,0],[0,1,0],[0,0,1],[1,0,1],[1,1,1],[0,1,1]];
+  const tetrahedra = [[0,5,1,6],[0,1,2,6],[0,2,3,6],[0,3,7,6],[0,7,4,6],[0,4,5,6]];
+  const vertex = (x, y, z) => {
+    const idx = z * plane + y * resolution + x;
+    return { x: -1 + 2 * x / (resolution - 1), y: -1 + 2 * y / (resolution - 1), z: -1 + 2 * z / (resolution - 1), value: values[idx], gradient: gradients[idx] };
+  };
+  const cross = (a, b) => {
+    const t = Math.max(0, Math.min(1, (level - a.value) / (b.value - a.value || 1)));
+    return { x: a.x + (b.x - a.x) * t, y: a.y + (b.y - a.y) * t, z: a.z + (b.z - a.z) * t, gradient: a.gradient + (b.gradient - a.gradient) * t };
+  };
+  const addTriangle = (a, b, c) => {
+    for (const point of [a, b, c]) {
+      positions.push(point.x, point.y, point.z);
+      const color = colorForValue(THREE, point.gradient);
+      colors.push(color.r, color.g, color.b);
+    }
+  };
+  for (let z = 0; z < resolution - 1; z++) for (let y = 0; y < resolution - 1; y++) for (let x = 0; x < resolution - 1; x++) {
+    const cube = cornerOffsets.map(([dx,dy,dz]) => vertex(x + dx, y + dy, z + dz));
+    for (const tet of tetrahedra) {
+      const inside = [], outside = [];
+      for (const i of tet) (cube[i].value >= level ? inside : outside).push(cube[i]);
+      if (inside.length === 1) {
+        addTriangle(cross(inside[0], outside[0]), cross(inside[0], outside[1]), cross(inside[0], outside[2]));
+      } else if (inside.length === 3) {
+        addTriangle(cross(outside[0], inside[0]), cross(outside[0], inside[1]), cross(outside[0], inside[2]));
+      } else if (inside.length === 2) {
+        const a = cross(inside[0], outside[0]), b = cross(inside[0], outside[1]);
+        const c = cross(inside[1], outside[0]), d = cross(inside[1], outside[1]);
+        addTriangle(a, b, c);
+        addTriangle(b, d, c);
+      }
+    }
+  }
+  if (!positions.length) return null;
+  const geometry = new THREE.BufferGeometry();
+  geometry.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
+  geometry.setAttribute('color', new THREE.Float32BufferAttribute(colors, 3));
+  geometry.computeVertexNormals();
+  geometry.computeBoundingSphere();
+  return geometry;
+}
+
+function replaceHyperfieldMesh(THREE, geometry) {
+  clearHyperfieldMesh();
+  const glowMaterial = new THREE.MeshBasicMaterial({ color: '#548cff', side: THREE.DoubleSide, transparent: true, opacity: 0.12, blending: THREE.AdditiveBlending, depthWrite: false });
+  hyperfieldGlow = new THREE.Mesh(geometry, glowMaterial);
+  hyperfieldGlow.scale.setScalar(1.045);
+  hyperfieldMesh = new THREE.Mesh(geometry, hyperfieldMaterials.surface);
+  hyperfieldWire = new THREE.Mesh(geometry, hyperfieldMaterials.wire);
+  hyperfieldWire.visible = hyperfieldWireframe;
+  hyperfieldScene.add(hyperfieldGlow, hyperfieldMesh, hyperfieldWire);
+}
+
+function clearHyperfieldMesh() {
+  if (hyperfieldGlow) hyperfieldScene.remove(hyperfieldGlow);
+  if (hyperfieldMesh) hyperfieldScene.remove(hyperfieldMesh);
+  if (hyperfieldWire) hyperfieldScene.remove(hyperfieldWire);
+  if (hyperfieldMesh && hyperfieldMesh.geometry) hyperfieldMesh.geometry.dispose();
+  if (hyperfieldGlow && hyperfieldGlow.material) hyperfieldGlow.material.dispose();
+  hyperfieldGlow = null;
+  hyperfieldMesh = null;
+  hyperfieldWire = null;
 }
 
 // ---- advisor ----

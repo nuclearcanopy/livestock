@@ -239,6 +239,7 @@ class Handler(http.server.SimpleHTTPRequestHandler):
             layout = {"type": "layout", "mode": "surface", "axis_x": axis_x, "axis_z": axis_z,
                       "log_x": AXIS_LOG[axis_x], "log_z": AXIS_LOG[axis_z],
                       "xs": xs, "zs": zs, "y_cap": y_cap, "max_days": max_days,
+                      "dimensions": [{"axis": a, "values": dimension_values[a]} for a in graphs],
                       "extra_axes": [{"axis": a, "values": dimension_values[a]} for a in extra_axes],
                       "sample_counts": sample_counts, "set_count": len(sets), **val_fields}
 
