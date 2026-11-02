@@ -6,6 +6,7 @@ import os
 import re
 import json
 import math
+import itertools
 
 ROOT = os.path.dirname(os.path.abspath(__file__))
 BINARY = os.path.join(ROOT, "clanstats")
@@ -32,6 +33,7 @@ def leader_flag(q):
 
 CACHE = {}
 CACHE_MAX = 4096
+MAX_SWEEP_POINTS = 1200
 
 
 def sweep_values(axis, points):
@@ -53,6 +55,13 @@ def sweep_values(axis, points):
             continue
         out.append(v)
     return out
+
+
+def effective_sample_counts(axes, requested):
+    if not axes:
+        return {}
+    per_axis_limit = max(2, int(MAX_SWEEP_POINTS ** (1 / len(axes))))
+    return {axis: min(requested[axis], per_axis_limit) for axis in axes}
 
 
 def clamp_one(axis, v):
@@ -169,13 +178,13 @@ class Handler(http.server.SimpleHTTPRequestHandler):
         try:
             vals = clamp_all(q)
             graphs_raw = q.get("graphs", [""])[0]
-            graphs = [g for g in graphs_raw.split(",") if g in AXIS_BOUNDS]
-            slices = {}
-            for axis in graphs[2:]:
-                if f"slice_{axis}" in q:
-                    slices[axis] = clamp_one(axis, q[f"slice_{axis}"][0])
+            graphs = list(dict.fromkeys(g for g in graphs_raw.split(",") if g in AXIS_BOUNDS))
             px = max(5, min(int(q.get("px", ["40"])[0]), 200))
             pz = max(5, min(int(q.get("pz", ["30"])[0]), 100))
+            requested = {}
+            for index, axis in enumerate(graphs):
+                default = px if index == 0 else pz if index == 1 else 25
+                requested[axis] = max(2, min(int(q.get(f"p_{axis}", [str(default)])[0]), 200))
             max_days = max(10, min(int(q.get("max_days", ["100000"])[0]), 10000000))
             emit_every = max(1, min(int(q.get("emit_every", ["10"])[0]), 10000))
             sleep_us = max(0, min(int(q.get("sleep_us", ["1000"])[0]), 1000000))
@@ -184,7 +193,6 @@ class Handler(http.server.SimpleHTTPRequestHandler):
             self.send_error(400, "bad params")
             return
 
-        vals.update(slices)
         val_fields = {f"{a}_val": vals[a] for a in AXIS_BOUNDS}
         val_fields["l_val"] = leader
 
@@ -197,7 +205,8 @@ class Handler(http.server.SimpleHTTPRequestHandler):
         elif len(graphs) == 1:
             mode = "line"
             axis = graphs[0]
-            xs = sweep_values(axis, px)
+            sample_counts = effective_sample_counts(graphs, requested)
+            xs = sweep_values(axis, sample_counts[axis])
             sets = []
             for v in xs:
                 point = dict(vals)
@@ -206,24 +215,32 @@ class Handler(http.server.SimpleHTTPRequestHandler):
             y_cap = AXIS_BOUNDS["n"][1] if axis == "n" else vals["n"]
             layout = {"type": "layout", "mode": "line", "axis": axis,
                       "log": AXIS_LOG[axis], "lo": AXIS_BOUNDS[axis][0], "hi": AXIS_BOUNDS[axis][1],
-                      "xs": xs, "y_cap": y_cap, "max_days": max_days, **val_fields}
+                      "xs": xs, "sample_counts": sample_counts, "y_cap": y_cap, "max_days": max_days, **val_fields}
         else:
             mode = "surface"
             axis_x, axis_z = graphs[0], graphs[1]
-            xs = sweep_values(axis_x, px)
-            zs = sweep_values(axis_z, pz)
+            sample_counts = effective_sample_counts(graphs, requested)
+            dimension_values = {axis: sweep_values(axis, sample_counts[axis]) for axis in graphs}
+            xs = dimension_values[axis_x]
+            zs = dimension_values[axis_z]
             sets = []
-            for zv in zs:
-                for xv in xs:
-                    point = dict(vals)
-                    point[axis_x] = xv if AXIS_INT[axis_x] else float(xv)
-                    point[axis_z] = zv if AXIS_INT[axis_z] else float(zv)
-                    sets.append(tuple(point[a] for a in AXIS_BOUNDS))
+            extra_axes = graphs[2:]
+            extra_values = [dimension_values[axis] for axis in extra_axes]
+            for extra_combo in itertools.product(*extra_values):
+                for zv in zs:
+                    for xv in xs:
+                        point = dict(vals)
+                        point[axis_x] = xv if AXIS_INT[axis_x] else float(xv)
+                        point[axis_z] = zv if AXIS_INT[axis_z] else float(zv)
+                        for axis, value in zip(extra_axes, extra_combo):
+                            point[axis] = value if AXIS_INT[axis] else float(value)
+                        sets.append(tuple(point[a] for a in AXIS_BOUNDS))
             y_cap = AXIS_BOUNDS["n"][1] if (axis_x == "n" or axis_z == "n") else vals["n"]
             layout = {"type": "layout", "mode": "surface", "axis_x": axis_x, "axis_z": axis_z,
                       "log_x": AXIS_LOG[axis_x], "log_z": AXIS_LOG[axis_z],
                       "xs": xs, "zs": zs, "y_cap": y_cap, "max_days": max_days,
-                      "slices": [{"axis": a, "value": vals[a]} for a in graphs[2:]], **val_fields}
+                      "extra_axes": [{"axis": a, "values": dimension_values[a]} for a in extra_axes],
+                      "sample_counts": sample_counts, "set_count": len(sets), **val_fields}
 
         # send SSE headers
         self.send_response(200)

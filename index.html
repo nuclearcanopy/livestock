@@ -109,6 +109,7 @@
   .dimension-copy { min-width: 0; }
   .dimension-copy h2 { margin: 0 0 .4rem; color: #dcd8ff; font-size: 1rem; }
   .dimension-copy p { max-width: 32rem; margin: 0; color: #9999ad; font-size: .78rem; line-height: 1.5; }
+  #sweep-status { margin-top: .55rem; color: #b5a7dc; font-size: .72rem; }
   .dimension-tags { display: flex; flex-wrap: wrap; gap: .35rem; margin-top: .8rem; }
   .dimension-tags span { padding: .2rem .4rem; border: 1px solid #39384e; color: #b8b5d4; font-size: .65rem; }
   .dimension-tags .time-dimension { border-color: #ad77e8; color: #e3c6ff; }
@@ -120,10 +121,6 @@
   @keyframes dimension-drift { to { rotate: 28deg; scale: .82; } }
   @keyframes dimension-pulse { to { scale: 2.5; opacity: .55; } }
   @media(max-width:620px) { #dimension-space { gap: .5rem; padding: .8rem; } .hypercube { width: 78px; scale: .72; margin: 0 -12px; } }
-  #slice-controls { width: min(1000px, 100%); display: grid; gap: .5rem; color: #aaa; }
-  #slice-controls:empty { display: none; }
-  .slice-control { display: grid; grid-template-columns: 12rem 1fr 5rem; gap: .75rem; align-items: center; font-size: .8rem; }
-  .slice-control input { width: 100%; }
 
   .sliders {
     width: min(900px, 100%);
@@ -300,7 +297,8 @@
   <section id="dimension-space" aria-label="Playful projection of the nine-dimensional simulation">
     <div class="dimension-copy">
       <h2>the 9D livestock hyperfield</h2>
-      <p>An artistic projection, not literal 9D geometry: eight model knobs, plus simulation time. The plot above shows a slice through the field.</p>
+      <p>An artistic projection, not literal 9D geometry: eight model knobs, plus simulation time. Every checked knob is swept; the view keeps moving through the combinations.</p>
+      <div id="sweep-status" aria-live="polite"></div>
       <div class="dimension-tags" aria-label="Eight model parameters and time">
         <span>capacity</span><span>inactivity</span><span>recruiting</span><span>newcomer churn</span>
         <span>churn decay</span><span>veteran value</span><span>veteran time</span><span>ghost penalty</span><span class="time-dimension">day ↗</span>
@@ -308,7 +306,6 @@
     </div>
     <div class="hypercube" aria-hidden="true"><i></i><i></i><i></i><b></b></div>
   </section>
-  <div id="slice-controls"></div>
   <div class="sliders">
     <div class="row" data-axis="n">
       <label class="toggle"><input type="checkbox" data-graph="n"><span>graph</span></label>
@@ -412,7 +409,7 @@ const rows = {};
 
 const PRECISION_MIN = 5;
 const PRECISION_MAX_LINE = 200;
-const PRECISION_MAX_SURFACE = 40;
+const MAX_SWEEP_POINTS = 1200;
 const RESTART_DEBOUNCE_MS = 180;
 const MAX_DAYS = 150000;
 const EMIT_EVERY = 50;
@@ -475,9 +472,9 @@ function buildPrecisionSlider(axis) {
   sub.appendChild(value);
   const slider = document.createElement('input');
   slider.type = 'range';
-  slider.min = PRECISION_MIN;
-  const anyGraphs = Object.values(graph).filter(Boolean).length;
-  const maxP = anyGraphs >= 2 ? PRECISION_MAX_SURFACE : PRECISION_MAX_LINE;
+  const dimensionCount = Object.values(graph).filter(Boolean).length;
+  const maxP = dimensionCount < 2 ? PRECISION_MAX_LINE : Math.max(2, Math.floor(MAX_SWEEP_POINTS ** (1 / dimensionCount)));
+  slider.min = Math.min(PRECISION_MIN, maxP);
   slider.max = maxP;
   slider.step = 1;
   slider.value = Math.min(precision[axis], maxP);
@@ -525,15 +522,7 @@ function updateRowMode(axis) {
   row.classList.toggle('swept', graph[axis]);
   row._slot.innerHTML = '';
   if (graph[axis]) {
-    const sweptAxes = AXIS_KEYS.filter(a => graph[a]);
-    if (sweptAxes.indexOf(axis) < 2) {
-      row._slot.appendChild(buildPrecisionSlider(axis));
-    } else {
-      const hint = document.createElement('span');
-      hint.className = 'sub';
-      hint.textContent = 'slice value controlled below';
-      row._slot.appendChild(hint);
-    }
+    row._slot.appendChild(buildPrecisionSlider(axis));
     row._val.textContent = 'swept';
   } else {
     row._slot.appendChild(buildValueSlider(axis));
@@ -553,7 +542,7 @@ const $out = document.getElementById('out');
 const $outCaption = document.getElementById('out-caption');
 const $graph = document.getElementById('graph-area');
 const $dimensionSpace = document.getElementById('dimension-space');
-const $sliceControls = document.getElementById('slice-controls');
+const $sweepStatus = document.getElementById('sweep-status');
 const $dayVal = document.getElementById('day-val');
 const $dayRange = document.getElementById('day-range');
 
@@ -564,6 +553,11 @@ let pendingData = null;
 let rafScheduled = false;
 let paused = false;
 let restartTimer = null;
+let latestSurfaceYs = null;
+let currentSliceIndex = 0;
+let sliceTimer = null;
+let rotationTimer = null;
+let rotationAngle = 0;
 
 const $pauseBtn = document.getElementById('pause-btn');
 function togglePause() {
@@ -620,10 +614,13 @@ function openStreamNow() {
   closeStream();
   plotInit = false;
   currentLayout = null;
+  latestSurfaceYs = null;
+  currentSliceIndex = 0;
+  clearInterval(sliceTimer);
+  clearInterval(rotationTimer);
 
   const active = AXIS_KEYS.filter(a => graph[a]);
   const anyGraph = active.length > 0;
-  renderSliceControls(active.slice(2));
 
   $out.classList.toggle('hidden', anyGraph);
   $outCaption.classList.toggle('hidden', anyGraph);
@@ -641,9 +638,7 @@ function openStreamNow() {
   params.set('max_days', String(MAX_DAYS));
   params.set('emit_every', String(EMIT_EVERY));
   params.set('sleep_us', String(SLEEP_US));
-  if (active.length >= 1) params.set('px', String(precision[active[0]]));
-  if (active.length >= 2) params.set('pz', String(precision[active[1]]));
-  for (const a of active.slice(2)) params.set(`slice_${a}`, String(state[a]));
+  for (const a of active) params.set(`p_${a}`, String(precision[a]));
 
   $dayVal.textContent = '1';
   $dayVal.classList.add('running');
@@ -658,41 +653,27 @@ function openStreamNow() {
   };
 }
 
-function renderSliceControls(axes) {
-  $sliceControls.replaceChildren();
-  if (!axes.length) return;
-  const note = document.createElement('div');
-  note.textContent = `Extra dimensions: scroll these parameters to move through slices of the surface. The first two selected parameters form the surface axes.`;
-  $sliceControls.appendChild(note);
-  for (const axis of axes) {
-    const A = AXES[axis];
-    const row = document.createElement('label');
-    row.className = 'slice-control';
-    const title = document.createElement('span');
-    title.textContent = `${axisLabel(axis)} slice`;
-    const slider = document.createElement('input');
-    slider.type = 'range';
-    if (A.int) {
-      slider.min = A.lo; slider.max = A.hi; slider.step = 1; slider.value = state[axis];
-    } else {
-      slider.min = 0; slider.max = 1; slider.step = 'any'; slider.value = toSlider(axis, state[axis]);
-    }
-    const value = document.createElement('span');
-    value.textContent = fmtValue(axis);
-    slider.addEventListener('input', () => {
-      state[axis] = A.int ? +slider.value : toActual(axis, +slider.value);
-      value.textContent = fmtValue(axis);
-      restartStream();
-    });
-    row.append(title, slider, value);
-    $sliceControls.appendChild(row);
-  }
-}
-
 function onSSE(evt) {
   const d = JSON.parse(evt.data);
   if (d.type === 'layout') {
     currentLayout = d;
+    if (d.mode === 'surface') {
+      const combos = d.extra_axes.reduce((total, dimension) => total * dimension.values.length, 1);
+      const motion = combos > 1 ? `${combos.toLocaleString()} auto-cycling slices` : 'camera auto-rotates';
+      $sweepStatus.textContent = `${d.set_count.toLocaleString()} combinations · ${d.sample_counts[d.axis_x]} × ${d.sample_counts[d.axis_z]} visible grid · ${motion}`;
+      if (combos > 1) {
+        sliceTimer = setInterval(() => {
+          if (!latestSurfaceYs || !currentLayout) return;
+          const count = currentLayout.extra_axes.reduce((total, dimension) => total * dimension.values.length, 1);
+          currentSliceIndex = (currentSliceIndex + 1) % count;
+          renderSurface(latestSurfaceYs);
+        }, 1500);
+      }
+    } else if (d.mode === 'line') {
+      $sweepStatus.textContent = `${d.xs.length.toLocaleString()} values · the curve mutates as the simulation runs`;
+    } else {
+      $sweepStatus.textContent = '';
+    }
     return;
   }
   if (!currentLayout) return;
@@ -768,11 +749,26 @@ function renderLine(ys) {
 
 function renderSurface(ys) {
   const L = currentLayout;
+  latestSurfaceYs = ys;
   const cols = L.xs.length;
   const rows = L.zs.length;
+  const stride = cols * rows;
+  const offset = currentSliceIndex * stride;
   const z = [];
   for (let r = 0; r < rows; r++) {
-    z.push(ys.slice(r * cols, (r + 1) * cols));
+    z.push(ys.slice(offset + r * cols, offset + (r + 1) * cols));
+  }
+  if (L.extra_axes.length) {
+    let remainder = currentSliceIndex;
+    const selected = Array(L.extra_axes.length);
+    for (let i = L.extra_axes.length - 1; i >= 0; i--) {
+      const values = L.extra_axes[i].values;
+      const valueIndex = remainder % values.length;
+      remainder = Math.floor(remainder / values.length);
+      selected[i] = `${axisLabel(L.extra_axes[i].axis)} ${Number(values[valueIndex]).toPrecision(3)}`;
+    }
+    const count = L.extra_axes.reduce((total, dimension) => total * dimension.values.length, 1);
+    $sweepStatus.textContent = `${L.set_count.toLocaleString()} combinations · view ${currentSliceIndex + 1}/${count}: ${selected.join(' · ')}`;
   }
   const data = [{
     x: L.xs, y: L.zs, z: z,
@@ -794,7 +790,7 @@ function renderSurface(ys) {
       zaxis: { title: 'optimal count', range: [0, L.y_cap],
                gridcolor: '#333', zerolinecolor: '#333', color: '#ccc' },
       bgcolor: '#191919',
-      camera: { eye: { x: 1.6, y: 1.6, z: 1.1 } },
+      camera: { eye: { x: 2.0 * Math.cos(rotationAngle), y: 2.0 * Math.sin(rotationAngle), z: 1.25 } },
     },
   };
   const config = { displayModeBar: true, responsive: true,
@@ -802,6 +798,14 @@ function renderSurface(ys) {
   if (!plotInit) {
     Plotly.newPlot($graph, data, layout, config);
     plotInit = true;
+    rotationAngle = 0;
+    rotationTimer = setInterval(() => {
+      if (!plotInit || !currentLayout || currentLayout.mode !== 'surface') return;
+      rotationAngle += 0.035;
+      Plotly.relayout($graph, { 'scene.camera.eye': {
+        x: 2.0 * Math.cos(rotationAngle), y: 2.0 * Math.sin(rotationAngle), z: 1.25,
+      } });
+    }, 300);
   } else {
     Plotly.react($graph, data, layout, config);
   }
