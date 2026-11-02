@@ -170,8 +170,10 @@ class Handler(http.server.SimpleHTTPRequestHandler):
             vals = clamp_all(q)
             graphs_raw = q.get("graphs", [""])[0]
             graphs = [g for g in graphs_raw.split(",") if g in AXIS_BOUNDS]
-            if len(graphs) > 2:
-                graphs = graphs[:2]
+            slices = {}
+            for axis in graphs[2:]:
+                if f"slice_{axis}" in q:
+                    slices[axis] = clamp_one(axis, q[f"slice_{axis}"][0])
             px = max(5, min(int(q.get("px", ["40"])[0]), 200))
             pz = max(5, min(int(q.get("pz", ["30"])[0]), 100))
             max_days = max(10, min(int(q.get("max_days", ["100000"])[0]), 10000000))
@@ -182,6 +184,7 @@ class Handler(http.server.SimpleHTTPRequestHandler):
             self.send_error(400, "bad params")
             return
 
+        vals.update(slices)
         val_fields = {f"{a}_val": vals[a] for a in AXIS_BOUNDS}
         val_fields["l_val"] = leader
 
@@ -219,7 +222,8 @@ class Handler(http.server.SimpleHTTPRequestHandler):
             y_cap = AXIS_BOUNDS["n"][1] if (axis_x == "n" or axis_z == "n") else vals["n"]
             layout = {"type": "layout", "mode": "surface", "axis_x": axis_x, "axis_z": axis_z,
                       "log_x": AXIS_LOG[axis_x], "log_z": AXIS_LOG[axis_z],
-                      "xs": xs, "zs": zs, "y_cap": y_cap, "max_days": max_days, **val_fields}
+                      "xs": xs, "zs": zs, "y_cap": y_cap, "max_days": max_days,
+                      "slices": [{"axis": a, "value": vals[a]} for a in graphs[2:]], **val_fields}
 
         # send SSE headers
         self.send_response(200)

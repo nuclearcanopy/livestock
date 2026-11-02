@@ -92,6 +92,38 @@
     border-radius: 4px;
   }
   #graph-area.visible { display: block; }
+  #dimension-space {
+    display: none;
+    width: min(1000px, 100%);
+    min-height: 170px;
+    align-items: center;
+    justify-content: space-between;
+    gap: 2rem;
+    padding: 1rem 1.4rem;
+    box-sizing: border-box;
+    overflow: hidden;
+    border: 1px solid #303343;
+    background: radial-gradient(ellipse at 75% 50%, #25244a 0, #171720 48%, #141414 100%);
+  }
+  #dimension-space.visible { display: flex; }
+  .dimension-copy { min-width: 0; }
+  .dimension-copy h2 { margin: 0 0 .4rem; color: #dcd8ff; font-size: 1rem; }
+  .dimension-copy p { max-width: 32rem; margin: 0; color: #9999ad; font-size: .78rem; line-height: 1.5; }
+  .dimension-tags { display: flex; flex-wrap: wrap; gap: .35rem; margin-top: .8rem; }
+  .dimension-tags span { padding: .2rem .4rem; border: 1px solid #39384e; color: #b8b5d4; font-size: .65rem; }
+  .dimension-tags .time-dimension { border-color: #ad77e8; color: #e3c6ff; }
+  .hypercube { position: relative; flex: none; width: 140px; height: 130px; perspective: 400px; }
+  .hypercube i { position: absolute; top: 50%; left: 50%; width: 82px; height: 82px; border: 1px solid #aaa0ff; transform: translate(-50%,-50%) rotate(35deg) skew(-8deg,-8deg); animation: dimension-drift 9s ease-in-out infinite alternate; }
+  .hypercube i:nth-child(2) { width: 58px; height: 58px; border-color: #60c9d9; transform: translate(-50%,-50%) rotate(-35deg) skew(8deg,8deg); animation-delay: -3s; }
+  .hypercube i:nth-child(3) { width: 32px; height: 32px; border-color: #e69bff; animation-delay: -6s; }
+  .hypercube b { position: absolute; top: 50%; left: 50%; width: 5px; height: 5px; border-radius: 50%; background: #fff; box-shadow: 0 0 16px 5px #bb8cff; animation: dimension-pulse 2s ease-in-out infinite alternate; }
+  @keyframes dimension-drift { to { rotate: 28deg; scale: .82; } }
+  @keyframes dimension-pulse { to { scale: 2.5; opacity: .55; } }
+  @media(max-width:620px) { #dimension-space { gap: .5rem; padding: .8rem; } .hypercube { width: 78px; scale: .72; margin: 0 -12px; } }
+  #slice-controls { width: min(1000px, 100%); display: grid; gap: .5rem; color: #aaa; }
+  #slice-controls:empty { display: none; }
+  .slice-control { display: grid; grid-template-columns: 12rem 1fr 5rem; gap: .75rem; align-items: center; font-size: .8rem; }
+  .slice-control input { width: 100%; }
 
   .sliders {
     width: min(900px, 100%);
@@ -265,6 +297,18 @@
   <div id="out">…</div>
   <div id="out-caption"></div>
   <div id="graph-area"></div>
+  <section id="dimension-space" aria-label="Playful projection of the nine-dimensional simulation">
+    <div class="dimension-copy">
+      <h2>the 9D livestock hyperfield</h2>
+      <p>An artistic projection, not literal 9D geometry: eight model knobs, plus simulation time. The plot above shows a slice through the field.</p>
+      <div class="dimension-tags" aria-label="Eight model parameters and time">
+        <span>capacity</span><span>inactivity</span><span>recruiting</span><span>newcomer churn</span>
+        <span>churn decay</span><span>veteran value</span><span>veteran time</span><span>ghost penalty</span><span class="time-dimension">day ↗</span>
+      </div>
+    </div>
+    <div class="hypercube" aria-hidden="true"><i></i><i></i><i></i><b></b></div>
+  </section>
+  <div id="slice-controls"></div>
   <div class="sliders">
     <div class="row" data-axis="n">
       <label class="toggle"><input type="checkbox" data-graph="n"><span>graph</span></label>
@@ -465,13 +509,8 @@ document.querySelectorAll('.row[data-axis]').forEach(row => {
   val.textContent = fmtValue(axis);
 
   cb.addEventListener('change', () => {
-    if (cb.checked && Object.values(graph).filter(Boolean).length >= 2) {
-      // block third
-      cb.checked = false;
-      return;
-    }
     graph[axis] = cb.checked;
-    updateRowMode(axis);
+    for (const a of AXIS_KEYS) updateRowMode(a);
     updateCheckboxDisabledState();
     restartStream();
   });
@@ -486,7 +525,15 @@ function updateRowMode(axis) {
   row.classList.toggle('swept', graph[axis]);
   row._slot.innerHTML = '';
   if (graph[axis]) {
-    row._slot.appendChild(buildPrecisionSlider(axis));
+    const sweptAxes = AXIS_KEYS.filter(a => graph[a]);
+    if (sweptAxes.indexOf(axis) < 2) {
+      row._slot.appendChild(buildPrecisionSlider(axis));
+    } else {
+      const hint = document.createElement('span');
+      hint.className = 'sub';
+      hint.textContent = 'slice value controlled below';
+      row._slot.appendChild(hint);
+    }
     row._val.textContent = 'swept';
   } else {
     row._slot.appendChild(buildValueSlider(axis));
@@ -495,11 +542,9 @@ function updateRowMode(axis) {
 }
 
 function updateCheckboxDisabledState() {
-  const count = Object.values(graph).filter(Boolean).length;
   for (const a of AXIS_KEYS) {
     const cb = rows[a]._cb;
-    if (count >= 2 && !graph[a]) cb.disabled = true;
-    else cb.disabled = false;
+    cb.disabled = false;
   }
 }
 
@@ -507,6 +552,8 @@ function updateCheckboxDisabledState() {
 const $out = document.getElementById('out');
 const $outCaption = document.getElementById('out-caption');
 const $graph = document.getElementById('graph-area');
+const $dimensionSpace = document.getElementById('dimension-space');
+const $sliceControls = document.getElementById('slice-controls');
 const $dayVal = document.getElementById('day-val');
 const $dayRange = document.getElementById('day-range');
 
@@ -576,10 +623,12 @@ function openStreamNow() {
 
   const active = AXIS_KEYS.filter(a => graph[a]);
   const anyGraph = active.length > 0;
+  renderSliceControls(active.slice(2));
 
   $out.classList.toggle('hidden', anyGraph);
   $outCaption.classList.toggle('hidden', anyGraph);
   $graph.classList.toggle('visible', anyGraph);
+  $dimensionSpace.classList.toggle('visible', anyGraph);
   if (!anyGraph) {
     Plotly.purge($graph);
   }
@@ -594,6 +643,7 @@ function openStreamNow() {
   params.set('sleep_us', String(SLEEP_US));
   if (active.length >= 1) params.set('px', String(precision[active[0]]));
   if (active.length >= 2) params.set('pz', String(precision[active[1]]));
+  for (const a of active.slice(2)) params.set(`slice_${a}`, String(state[a]));
 
   $dayVal.textContent = '1';
   $dayVal.classList.add('running');
@@ -606,6 +656,37 @@ function openStreamNow() {
     $dayVal.classList.remove('running');
     if (es) { es.close(); es = null; }
   };
+}
+
+function renderSliceControls(axes) {
+  $sliceControls.replaceChildren();
+  if (!axes.length) return;
+  const note = document.createElement('div');
+  note.textContent = `Extra dimensions: scroll these parameters to move through slices of the surface. The first two selected parameters form the surface axes.`;
+  $sliceControls.appendChild(note);
+  for (const axis of axes) {
+    const A = AXES[axis];
+    const row = document.createElement('label');
+    row.className = 'slice-control';
+    const title = document.createElement('span');
+    title.textContent = `${axisLabel(axis)} slice`;
+    const slider = document.createElement('input');
+    slider.type = 'range';
+    if (A.int) {
+      slider.min = A.lo; slider.max = A.hi; slider.step = 1; slider.value = state[axis];
+    } else {
+      slider.min = 0; slider.max = 1; slider.step = 'any'; slider.value = toSlider(axis, state[axis]);
+    }
+    const value = document.createElement('span');
+    value.textContent = fmtValue(axis);
+    slider.addEventListener('input', () => {
+      state[axis] = A.int ? +slider.value : toActual(axis, +slider.value);
+      value.textContent = fmtValue(axis);
+      restartStream();
+    });
+    row.append(title, slider, value);
+    $sliceControls.appendChild(row);
+  }
 }
 
 function onSSE(evt) {
